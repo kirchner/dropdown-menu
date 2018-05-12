@@ -453,13 +453,13 @@ type alias ScrollData =
 
 
 update :
-    { entrySelected : a -> msg
-    , selectionDismissed : msg
+    { entrySelected : a -> outMsg
+    , selectionDismissed : outMsg
     }
     -> Maybe a
     -> State a
     -> Msg a
-    -> ( State a, Cmd (Msg a), Maybe msg )
+    -> ( State a, Cmd (Msg a), Maybe outMsg )
 update { entrySelected, selectionDismissed } maybeSelection ((State stuff) as state) msg =
     case msg of
         NoOp ->
