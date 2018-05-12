@@ -6,6 +6,7 @@ module DropdownMenu
         , autocomplete
         , closed
         , config
+        , lazy
         , update
         , view
         )
@@ -28,6 +29,7 @@ type State a
         , keyboardFocus : Maybe Int
         , mouseFocus : Maybe Int
         , scrollDataCache : Maybe ScrollData
+        , scrollTop : Float
         }
 
 
@@ -45,6 +47,7 @@ closed =
         , keyboardFocus = Nothing
         , mouseFocus = Nothing
         , scrollDataCache = Nothing
+        , scrollTop = 0
         }
 
 
@@ -59,6 +62,16 @@ type Config a
         , list : List (Html.Attribute Never)
         , entry : Bool -> Bool -> Bool -> a -> HtmlDetails
         , entryId : a -> String
+        , wrapKeyboardFocus : Bool
+        }
+    | Lazy
+        { input : Input a
+        , wrapper : List (Html.Attribute Never)
+        , list : List (Html.Attribute Never)
+        , entry : Bool -> Bool -> Bool -> a -> HtmlDetails
+        , entryId : a -> String
+        , entryHeight : a -> Float
+        , listHeight : Float
         , wrapKeyboardFocus : Bool
         }
 
@@ -87,6 +100,21 @@ config { input, wrapper, list, entry, entryId, wrapKeyboardFocus } =
         , entryId = entryId
         , wrapKeyboardFocus = wrapKeyboardFocus
         }
+
+
+lazy :
+    { input : Input a
+    , wrapper : List (Html.Attribute Never)
+    , list : List (Html.Attribute Never)
+    , entry : Bool -> Bool -> Bool -> a -> HtmlDetails
+    , entryId : a -> String
+    , entryHeight : a -> Float
+    , listHeight : Float
+    , wrapKeyboardFocus : Bool
+    }
+    -> Config a
+lazy cfg =
+    Lazy cfg
 
 
 type Input a
@@ -125,48 +153,140 @@ view :
     -> Maybe a
     -> List a
     -> Html (Msg a)
-view (Config cfg) { id, labelledBy } (State stuff) maybeSelection entries =
-    let
-        filteredEntries =
-            case cfg.input of
-                Autocomplete { matchesQuery } ->
-                    entries
-                        |> List.filter (matchesQuery stuff.query)
+view c { id, labelledBy } (State stuff) maybeSelection entries =
+    case c of
+        Config cfg ->
+            let
+                filteredEntries =
+                    case cfg.input of
+                        Autocomplete { matchesQuery } ->
+                            entries
+                                |> List.filter (matchesQuery stuff.query)
 
-        keyboardFocusedEntry =
-            stuff.keyboardFocus
-                |> Maybe.andThen
-                    (\index ->
-                        filteredEntries
-                            |> List.drop index
-                            |> List.head
-                    )
-    in
-    Html.div
-        (appendAttributes cfg.wrapper [])
-        [ viewInput
-            cfg.input
-            id
-            labelledBy
-            cfg.wrapKeyboardFocus
-            maybeSelection
-            keyboardFocusedEntry
-            stuff.keyboardFocus
-            stuff.query
-            stuff.open
-            (List.length filteredEntries)
-        , viewEntries
-            cfg.list
-            cfg.entry
-            cfg.entryId
-            id
-            labelledBy
-            maybeSelection
-            stuff.keyboardFocus
-            stuff.mouseFocus
-            stuff.open
-            filteredEntries
-        ]
+                keyboardFocusedEntry =
+                    stuff.keyboardFocus
+                        |> Maybe.andThen
+                            (\index ->
+                                filteredEntries
+                                    |> List.drop index
+                                    |> List.head
+                            )
+            in
+            Html.div
+                (appendAttributes cfg.wrapper [])
+                [ viewInput
+                    cfg.input
+                    id
+                    labelledBy
+                    cfg.wrapKeyboardFocus
+                    maybeSelection
+                    keyboardFocusedEntry
+                    stuff.keyboardFocus
+                    stuff.query
+                    stuff.open
+                    0
+                    (List.length filteredEntries)
+                , viewEntries
+                    cfg.list
+                    cfg.entry
+                    cfg.entryId
+                    Nothing
+                    Nothing
+                    0
+                    id
+                    labelledBy
+                    maybeSelection
+                    stuff.keyboardFocus
+                    stuff.mouseFocus
+                    stuff.open
+                    filteredEntries
+                ]
+
+        Lazy cfg ->
+            let
+                filteredEntries =
+                    case cfg.input of
+                        Autocomplete { matchesQuery } ->
+                            entries
+                                |> List.filter (matchesQuery stuff.query)
+
+                ( displayedEntries, dropped, ( heightBefore, heightShown, heightAfter ) ) =
+                    filteredEntries
+                        |> List.foldl
+                            (\entry ( collectedEntries, d, ( hBefore, hShown, hAfter ) ) ->
+                                let
+                                    entryHeight =
+                                        cfg.entryHeight entry
+                                in
+                                if hBefore < stuff.scrollTop - 500 then
+                                    ( collectedEntries
+                                    , d + 1
+                                    , ( hBefore + entryHeight
+                                      , hShown
+                                      , hAfter
+                                      )
+                                    )
+                                else if hBefore + hShown > stuff.scrollTop + cfg.listHeight + 500 then
+                                    ( collectedEntries
+                                    , d
+                                    , ( hBefore
+                                      , hShown
+                                      , hAfter + entryHeight
+                                      )
+                                    )
+                                else
+                                    ( entry :: collectedEntries
+                                    , d
+                                    , ( hBefore
+                                      , hShown + entryHeight
+                                      , hAfter
+                                      )
+                                    )
+                            )
+                            ( [], 0, ( 0, 0, 0 ) )
+
+                entriesCount =
+                    filteredEntries
+                        |> List.length
+
+                keyboardFocusedEntry =
+                    stuff.keyboardFocus
+                        |> Maybe.andThen
+                            (\index ->
+                                filteredEntries
+                                    |> List.drop index
+                                    |> List.head
+                            )
+            in
+            Html.div
+                (appendAttributes cfg.wrapper [])
+                [ viewInput
+                    cfg.input
+                    id
+                    labelledBy
+                    cfg.wrapKeyboardFocus
+                    maybeSelection
+                    keyboardFocusedEntry
+                    stuff.keyboardFocus
+                    stuff.query
+                    stuff.open
+                    dropped
+                    entriesCount
+                , viewEntries
+                    cfg.list
+                    cfg.entry
+                    cfg.entryId
+                    (Just cfg.listHeight)
+                    (Just ( heightBefore, heightAfter ))
+                    dropped
+                    id
+                    labelledBy
+                    maybeSelection
+                    stuff.keyboardFocus
+                    stuff.mouseFocus
+                    stuff.open
+                    displayedEntries
+                ]
 
 
 viewInput :
@@ -180,8 +300,9 @@ viewInput :
     -> String
     -> Bool
     -> Int
+    -> Int
     -> Html (Msg a)
-viewInput input id labelledBy wrapKeyboardFocus maybeSelection keyboardFocusedEntry keyboardFocus query open entriesCount =
+viewInput input id labelledBy wrapKeyboardFocus maybeSelection keyboardFocusedEntry keyboardFocus query open dropped entriesCount =
     let
         setAriaExpanded attrs =
             if open then
@@ -235,7 +356,7 @@ viewInput input id labelledBy wrapKeyboardFocus maybeSelection keyboardFocusedEn
                                                                 (index - 1)
                                         in
                                         Decode.map (ArrowUpPressed id newIndex)
-                                            (scrollDataDecoder newIndex)
+                                            (scrollDataDecoder (newIndex + 1 - dropped))
 
                                     "ArrowDown" ->
                                         let
@@ -255,7 +376,7 @@ viewInput input id labelledBy wrapKeyboardFocus maybeSelection keyboardFocusedEn
                                                                 (index + 1)
                                         in
                                         Decode.map (ArrowDownPressed id newIndex)
-                                            (scrollDataDecoder newIndex)
+                                            (scrollDataDecoder (newIndex + 1 - dropped))
 
                                     " " ->
                                         Decode.succeed (SpacePressed id)
@@ -294,7 +415,7 @@ viewInput input id labelledBy wrapKeyboardFocus maybeSelection keyboardFocusedEn
 
                         Just index ->
                             Decode.map (TextfieldBlured << Just)
-                                (scrollDataDecoder index)
+                                (scrollDataDecoder (index + 1 - dropped))
                  , Attributes.style "position" "relative"
                  , Attributes.value query
                  , maybeSelection
@@ -316,6 +437,9 @@ viewEntries :
     List (Html.Attribute Never)
     -> (Bool -> Bool -> Bool -> a -> HtmlDetails)
     -> (a -> String)
+    -> Maybe Float
+    -> Maybe ( Float, Float )
+    -> Int
     -> String
     -> String
     -> Maybe a
@@ -324,7 +448,7 @@ viewEntries :
     -> Bool
     -> List a
     -> Html (Msg a)
-viewEntries list entry entryId id labelledBy maybeSelection keyboardFocus mouseFocus open entries =
+viewEntries list entry entryId maybeHeight maybeHeightInfo dropped id labelledBy maybeSelection keyboardFocus mouseFocus open entries =
     let
         setDisplay attrs =
             if open then
@@ -339,7 +463,7 @@ viewEntries list entry entryId id labelledBy maybeSelection keyboardFocus mouseF
 
                 Just index ->
                     entries
-                        |> List.drop index
+                        |> List.drop (index - dropped)
                         |> List.head
                         |> Maybe.map
                             (\a ->
@@ -348,11 +472,32 @@ viewEntries list entry entryId id labelledBy maybeSelection keyboardFocus mouseF
                                     :: attrs
                             )
                         |> Maybe.withDefault attrs
+
+        addSpacers nodes =
+            case maybeHeightInfo of
+                Nothing ->
+                    nodes
+
+                Just ( heightBefore, heightAfter ) ->
+                    [ [ Html.li
+                            [ Attributes.style "height" (String.fromFloat heightBefore ++ "px") ]
+                            []
+                      ]
+                    , nodes
+                    , [ Html.li
+                            [ Attributes.style "height" (String.fromFloat heightAfter ++ "px") ]
+                            []
+                      ]
+                    ]
+                        |> List.concat
     in
     Html.ul
         ([ Attributes.style "position" "absolute"
          , Events.on "mousedown" (Decode.succeed MenuMouseDown)
          , Events.on "mouseup" (Decode.succeed MenuMouseUp)
+         , Events.on "scroll" <|
+            Decode.map MenuScrolled <|
+                Decode.at [ "target", "scrollTop" ] Decode.float
          , Attributes.id (id ++ "__element-list")
          , Attributes.attribute "role" "listbox"
          , Attributes.attribute "aria-labelledby" labelledBy
@@ -368,12 +513,13 @@ viewEntries list entry entryId id labelledBy maybeSelection keyboardFocus mouseF
                     entryId
                     id
                     maybeSelection
-                    (keyboardFocus == Just index)
-                    (mouseFocus == Just index)
-                    index
+                    (keyboardFocus == Just (index + dropped))
+                    (mouseFocus == Just (index + dropped))
+                    (index + dropped)
                     a
             )
             entries
+            |> addSpacers
         )
 
 
@@ -438,6 +584,7 @@ type Msg a
       -- MENU
     | MenuMouseDown
     | MenuMouseUp
+    | MenuScrolled Float
       -- ENTRY
     | EntryMouseEntered Int
     | EntryMouseLeft
@@ -522,6 +669,7 @@ update { entrySelected, selectionDismissed } maybeSelection ((State stuff) as st
                 { stuff
                     | keyboardFocus = Just index
                     , open = True
+                    , scrollTop = scrollData.listScrollTop
                 }
             , adjustScrollTop id scrollData
             , Nothing
@@ -532,6 +680,7 @@ update { entrySelected, selectionDismissed } maybeSelection ((State stuff) as st
                 { stuff
                     | keyboardFocus = Just index
                     , open = True
+                    , scrollTop = scrollData.listScrollTop
                 }
             , adjustScrollTop id scrollData
             , Nothing
@@ -603,6 +752,12 @@ update { entrySelected, selectionDismissed } maybeSelection ((State stuff) as st
 
         MenuMouseUp ->
             ( State { stuff | preventBlur = False }
+            , Cmd.none
+            , Nothing
+            )
+
+        MenuScrolled scrollTop ->
+            ( State { stuff | scrollTop = scrollTop }
             , Cmd.none
             , Nothing
             )

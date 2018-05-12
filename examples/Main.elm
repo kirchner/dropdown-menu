@@ -123,7 +123,7 @@ view model =
             [ Attributes.id "locale__label" ]
             [ Html.text "Locale" ]
         , locales
-            |> DropdownMenu.view config
+            |> DropdownMenu.view lazy
                 { id = "locale"
                 , labelledBy = "locale__label"
                 }
@@ -158,6 +158,37 @@ config =
                 , children = [ Html.text name ]
                 }
         , entryId = identity
+        , wrapKeyboardFocus = False
+        }
+
+
+lazy =
+    DropdownMenu.lazy
+        { input =
+            DropdownMenu.autocomplete
+                { textfield = \maybeSelection open -> [ Attributes.class "textfield" ]
+                , matchesQuery =
+                    \query value ->
+                        String.toLower value
+                            |> String.contains (String.toLower query)
+                , printSelection = identity
+                }
+        , wrapper = [ Attributes.style "width" "500px" ]
+        , list = [ Attributes.class "list" ]
+        , entry =
+            \selected keyboardFocused mouseFocused name ->
+                { attributes =
+                    [ Attributes.class "entry"
+                    , Attributes.classList
+                        [ ( "entry--keyboard-focused", keyboardFocused )
+                        , ( "entry--mouse-focused", mouseFocused )
+                        ]
+                    ]
+                , children = [ Html.text name ]
+                }
+        , entryId = identity
+        , entryHeight = \_ -> 42
+        , listHeight = 318
         , wrapKeyboardFocus = False
         }
 
