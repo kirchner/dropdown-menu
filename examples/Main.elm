@@ -1,9 +1,11 @@
 module Main exposing (main)
 
 import Browser
-import DropdownMenu
+import DropdownMenu.Filterable
+import DropdownMenu.Simple
 import Html exposing (Html)
 import Html.Attributes as Attributes
+import Html.Lazy as Html
 
 
 main : Program {} Model Msg
@@ -17,26 +19,31 @@ main =
 
 
 type alias Model =
-    { selection : Maybe String
-    , dropdownMenu : DropdownMenu.State String
-    , locale : Maybe String
-    , localeMenu : DropdownMenu.State String
+    { selectedLicense : Maybe String
+    , licenseMenu : DropdownMenu.Filterable.State String
+    , selectedLocale : Maybe String
+    , localeMenu : DropdownMenu.Simple.State String
+    , selectedNumber : Maybe String
+    , numberMenu : DropdownMenu.Filterable.State String
     }
 
 
 init _ =
-    ( { selection = Nothing
-      , dropdownMenu = DropdownMenu.closed
-      , locale = Nothing
-      , localeMenu = DropdownMenu.closed
+    ( { selectedLicense = Nothing
+      , licenseMenu = DropdownMenu.Filterable.closed
+      , selectedLocale = Nothing
+      , localeMenu = DropdownMenu.Simple.closed
+      , selectedNumber = Nothing
+      , numberMenu = DropdownMenu.Filterable.closed
       }
     , Cmd.none
     )
 
 
 type Msg
-    = DropdownMenuMsg (DropdownMenu.Msg String)
-    | LocaleMenuMsg (DropdownMenu.Msg String)
+    = LicenseMenuMsg (DropdownMenu.Filterable.Msg String)
+    | LocaleMenuMsg (DropdownMenu.Simple.Msg String)
+    | NumberMenuMsg (DropdownMenu.Filterable.Msg String)
 
 
 type OutMsg
@@ -46,40 +53,40 @@ type OutMsg
 
 update msg model =
     case Debug.log "msg" msg of
-        DropdownMenuMsg dropdownMenuMsg ->
+        LicenseMenuMsg dropdownMenuMsg ->
             let
                 ( newDropdownMenu, cmd, maybeOutMsg ) =
-                    DropdownMenu.update
+                    DropdownMenu.Filterable.update
                         { entrySelected = EntrySelected
                         , selectionDismissed = SelectionDismissed
                         }
-                        model.selection
-                        model.dropdownMenu
+                        model.selectedLicense
+                        model.licenseMenu
                         dropdownMenuMsg
 
                 newModel =
-                    { model | dropdownMenu = newDropdownMenu }
+                    { model | licenseMenu = newDropdownMenu }
             in
             ( case maybeOutMsg of
                 Just (EntrySelected entry) ->
-                    { newModel | selection = Just entry }
+                    { newModel | selectedLicense = Just entry }
 
                 Just SelectionDismissed ->
-                    { newModel | selection = Nothing }
+                    { newModel | selectedLicense = Nothing }
 
                 Nothing ->
                     newModel
-            , Cmd.map DropdownMenuMsg cmd
+            , Cmd.map LicenseMenuMsg cmd
             )
 
         LocaleMenuMsg dropdownMenuMsg ->
             let
                 ( newLocaleMenu, cmd, maybeOutMsg ) =
-                    DropdownMenu.update
+                    DropdownMenu.Simple.update
                         { entrySelected = EntrySelected
                         , selectionDismissed = SelectionDismissed
                         }
-                        model.locale
+                        model.selectedLocale
                         model.localeMenu
                         dropdownMenuMsg
 
@@ -88,14 +95,40 @@ update msg model =
             in
             ( case maybeOutMsg of
                 Just (EntrySelected entry) ->
-                    { newModel | locale = Just entry }
+                    { newModel | selectedLocale = Just entry }
 
                 Just SelectionDismissed ->
-                    { newModel | locale = Nothing }
+                    { newModel | selectedLocale = Nothing }
 
                 Nothing ->
                     newModel
             , Cmd.map LocaleMenuMsg cmd
+            )
+
+        NumberMenuMsg dropdownMenuMsg ->
+            let
+                ( newNumberMenu, cmd, maybeOutMsg ) =
+                    DropdownMenu.Filterable.update
+                        { entrySelected = EntrySelected
+                        , selectionDismissed = SelectionDismissed
+                        }
+                        model.selectedNumber
+                        model.numberMenu
+                        dropdownMenuMsg
+
+                newModel =
+                    { model | numberMenu = newNumberMenu }
+            in
+            ( case maybeOutMsg of
+                Just (EntrySelected entry) ->
+                    { newModel | selectedNumber = Just entry }
+
+                Just SelectionDismissed ->
+                    { newModel | selectedNumber = Nothing }
+
+                Nothing ->
+                    newModel
+            , Cmd.map NumberMenuMsg cmd
             )
 
 
@@ -108,46 +141,81 @@ view model =
         [ Attributes.style "display" "flex"
         , Attributes.style "flex-flow" "column"
         ]
+        [ Html.lazy2 viewLicenses model.selectedLicense model.licenseMenu
+        , Html.lazy2 viewLocales model.selectedLocale model.localeMenu
+        , Html.lazy2 viewNumbers model.selectedNumber model.numberMenu
+        ]
+
+
+viewLicenses selectedLicense licenseMenu =
+    Html.div []
         [ Html.span
             [ Attributes.id "license__label" ]
             [ Html.text "License" ]
         , licenses
-            |> DropdownMenu.view config
+            |> DropdownMenu.Filterable.view filterableConfig
                 { id = "license"
                 , labelledBy = "license__label"
+                , placeholder = "Select a license..."
                 }
-                model.dropdownMenu
-                model.selection
-            |> Html.map DropdownMenuMsg
-        , Html.span
+                selectedLicense
+                licenseMenu
+            |> Html.map LicenseMenuMsg
+        ]
+
+
+viewLocales selectedLocale localeMenu =
+    Html.div []
+        [ Html.span
             [ Attributes.id "locale__label" ]
             [ Html.text "Locale" ]
         , locales
-            |> DropdownMenu.view lazy
+            |> DropdownMenu.Simple.viewLazy (\_ -> 42)
+                simpleConfig
                 { id = "locale"
                 , labelledBy = "locale__label"
                 }
-                model.localeMenu
-                model.locale
+                selectedLocale
+                localeMenu
             |> Html.map LocaleMenuMsg
         ]
 
 
-config =
-    DropdownMenu.config
-        { input =
-            DropdownMenu.autocomplete
-                { textfield = \maybeSelection open -> [ Attributes.class "textfield" ]
-                , matchesQuery =
-                    \query value ->
-                        String.toLower value
-                            |> String.contains (String.toLower query)
-                , printSelection = identity
+viewNumbers selectedNumber numberMenu =
+    Html.div []
+        [ Html.span
+            [ Attributes.id "number__label" ]
+            [ Html.text "Number" ]
+        , numbers
+            |> DropdownMenu.Filterable.viewLazy (\_ -> 42)
+                filterableConfig
+                { id = "number"
+                , labelledBy = "number__label"
+                , placeholder = "Select a number..."
                 }
-        , wrapper = [ Attributes.style "width" "500px" ]
-        , list = [ Attributes.class "list" ]
-        , entry =
-            \selected keyboardFocused mouseFocused name ->
+                selectedNumber
+                numberMenu
+            |> Html.map NumberMenuMsg
+        ]
+
+
+filterableConfig : DropdownMenu.Filterable.Config String
+filterableConfig =
+    DropdownMenu.Filterable.config
+        { matchesQuery =
+            \query value ->
+                String.toLower value
+                    |> String.contains (String.toLower query)
+        , entryId = identity
+        , printEntry = identity
+        , jumpAtEnds = True
+        , closeAfterMouseSelection = False
+        , container = [ Attributes.style "width" "500px" ]
+        , textfield =
+            \{ selection, open } -> [ Attributes.class "textfield" ]
+        , ul = [ Attributes.class "list" ]
+        , li =
+            \{ selected, keyboardFocused, mouseFocused } name ->
                 { attributes =
                     [ Attributes.class "entry"
                     , Attributes.classList
@@ -157,26 +225,32 @@ config =
                     ]
                 , children = [ Html.text name ]
                 }
-        , entryId = identity
-        , wrapKeyboardFocus = False
         }
 
 
-lazy =
-    DropdownMenu.lazy
-        { input =
-            DropdownMenu.autocomplete
-                { textfield = \maybeSelection open -> [ Attributes.class "textfield" ]
-                , matchesQuery =
-                    \query value ->
-                        String.toLower value
-                            |> String.contains (String.toLower query)
-                , printSelection = identity
+simpleConfig : DropdownMenu.Simple.Config String
+simpleConfig =
+    DropdownMenu.Simple.config
+        { matchesQuery =
+            \query value ->
+                String.toLower value
+                    |> String.contains (String.toLower query)
+        , entryId = identity
+        , jumpAtEnds = True
+        , closeAfterMouseSelection = False
+        , container = [ Attributes.style "width" "500px" ]
+        , button =
+            \{ selection, open } ->
+                { attributes = [ Attributes.class "button" ]
+                , children =
+                    [ selection
+                        |> Maybe.withDefault "Select a license..."
+                        |> Html.text
+                    ]
                 }
-        , wrapper = [ Attributes.style "width" "500px" ]
-        , list = [ Attributes.class "list" ]
-        , entry =
-            \selected keyboardFocused mouseFocused name ->
+        , ul = [ Attributes.class "list" ]
+        , li =
+            \{ selected, keyboardFocused, mouseFocused } name ->
                 { attributes =
                     [ Attributes.class "entry"
                     , Attributes.classList
@@ -186,15 +260,17 @@ lazy =
                     ]
                 , children = [ Html.text name ]
                 }
-        , entryId = identity
-        , entryHeight = \_ -> 42
-        , listHeight = 318
-        , wrapKeyboardFocus = False
         }
 
 
 
 ---- DATA
+
+
+numbers : List String
+numbers =
+    List.range 0 123456
+        |> List.map String.fromInt
 
 
 licenses : List String
