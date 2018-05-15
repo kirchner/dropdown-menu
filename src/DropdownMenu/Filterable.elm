@@ -288,7 +288,7 @@ viewHelp (Config cfg) { id, labelledBy, placeholder } selection (State stuff) vi
              , Events.on "mousedown" (Decode.succeed (ListMouseDown id))
              , Events.on "mouseup" (Decode.succeed ListMouseUp)
              , Events.on "scroll" <|
-                Decode.map2 ListScrolled
+                Decode.map2 (ListScrolled id)
                     (Decode.at [ "target", "scrollTop" ] Decode.float)
                     (Decode.at [ "target", "clientHeight" ] Decode.float)
              ]
@@ -580,7 +580,7 @@ type Msg a
       -- LIST
     | ListMouseDown String
     | ListMouseUp
-    | ListScrolled Float Float
+    | ListScrolled String Float Float
       -- ENTRY
     | EntryMouseEntered Int
     | EntryMouseLeft
@@ -701,13 +701,13 @@ update lifts selection ((State stuff) as state) msg =
         ListMouseUp ->
             ( State { stuff | preventBlur = False }, Cmd.none, Nothing )
 
-        ListScrolled ulScrollTop ulClientHeight ->
+        ListScrolled id ulScrollTop ulClientHeight ->
             ( State
                 { stuff
                     | ulScrollTop = ulScrollTop
                     , ulClientHeight = ulClientHeight
                 }
-            , Cmd.none
+            , focusTextfield id
             , Nothing
             )
 
