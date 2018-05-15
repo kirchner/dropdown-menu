@@ -269,7 +269,7 @@ viewHelp (Config cfg) { id, labelledBy, placeholder } selection (State stuff) vi
 
                     Just index ->
                         Decode.map (TextfieldBlured << Just)
-                            (scrollDataDecoder (index + 1 - dropped))
+                            (scrollDataDecoder (index - dropped + 1))
              ]
                 |> setAriaExpanded stuff.open
                 |> appendAttributes
@@ -295,7 +295,7 @@ viewHelp (Config cfg) { id, labelledBy, placeholder } selection (State stuff) vi
                 |> setDisplay stuff.open
                 |> setAriaActivedescendant
                     (\a -> printEntryId id (cfg.entryId a))
-                    (Maybe.map (\index -> index + 1 - dropped) stuff.keyboardFocus)
+                    (Maybe.map (\index -> index - dropped) stuff.keyboardFocus)
                     entries
                 |> appendAttributes cfg.ul
             )
@@ -306,13 +306,16 @@ viewHelp (Config cfg) { id, labelledBy, placeholder } selection (State stuff) vi
                   ]
                 , List.indexedMap
                     (\index a ->
+                        let
+                            actualIndex =
+                                index + dropped
+                        in
                         viewEntry cfg
                             id
                             (selection == Just a)
-                            (stuff.keyboardFocus == Just (index + 1 - dropped))
-                            (stuff.mouseFocus == Just (index + 1 - dropped))
-                            dropped
-                            index
+                            (stuff.keyboardFocus == Just actualIndex)
+                            (stuff.mouseFocus == Just actualIndex)
+                            actualIndex
                             a
                     )
                     entries
@@ -352,7 +355,7 @@ handleKeydown id jumpAtEnds open keyboardFocus entries entriesCount dropped code
 
         "ArrowUp" ->
             let
-                newIndex =
+                previousIndex =
                     case keyboardFocus of
                         Nothing ->
                             entriesCount - 1
@@ -364,13 +367,13 @@ handleKeydown id jumpAtEnds open keyboardFocus entries entriesCount dropped code
                                 clamp 0 (entriesCount - 1) <|
                                     (index - 1)
             in
-            scrollDataDecoder (newIndex + 1 - dropped)
-                |> Decode.map (TextfieldArrowUpPressed id newIndex)
+            scrollDataDecoder (previousIndex - dropped + 1)
+                |> Decode.map (TextfieldArrowUpPressed id previousIndex)
                 |> preventDefault
 
         "ArrowDown" ->
             let
-                newIndex =
+                nextIndex =
                     case keyboardFocus of
                         Nothing ->
                             0
@@ -382,8 +385,8 @@ handleKeydown id jumpAtEnds open keyboardFocus entries entriesCount dropped code
                                 clamp 0 (entriesCount - 1) <|
                                     (index + 1)
             in
-            scrollDataDecoder (newIndex + 1 - dropped)
-                |> Decode.map (TextfieldArrowDownPressed id newIndex)
+            scrollDataDecoder (nextIndex - dropped + 1)
+                |> Decode.map (TextfieldArrowDownPressed id nextIndex)
                 |> preventDefault
 
         "Enter" ->
@@ -420,10 +423,9 @@ viewEntry :
     -> Bool
     -> Bool
     -> Int
-    -> Int
     -> a
     -> Html (Msg a)
-viewEntry cfg id selected keyboardFocused mouseFocused dropped index a =
+viewEntry cfg id selected keyboardFocused mouseFocused index a =
     let
         { attributes, children } =
             cfg.li
@@ -434,9 +436,9 @@ viewEntry cfg id selected keyboardFocused mouseFocused dropped index a =
                 a
     in
     Html.li
-        ([ Events.onMouseEnter (EntryMouseEntered (index + 1 - dropped))
+        ([ Events.onMouseEnter (EntryMouseEntered index)
          , Events.onMouseLeave EntryMouseLeft
-         , Events.onClick (EntryClicked id cfg.closeAfterMouseSelection (index + 1 - dropped) a)
+         , Events.onClick (EntryClicked id cfg.closeAfterMouseSelection index a)
          , Attributes.id (printEntryId id (cfg.entryId a))
          , Attributes.attribute "role" "option"
          ]
@@ -632,10 +634,10 @@ update lifts selection ((State stuff) as state) msg =
             , Nothing
             )
 
-        TextfieldArrowUpPressed id index scrollData ->
+        TextfieldArrowUpPressed id previousIndex scrollData ->
             ( State
                 { stuff
-                    | keyboardFocus = Just index
+                    | keyboardFocus = Just previousIndex
                     , open = True
                     , ulScrollTop = scrollData.ulScrollTop
                     , ulClientHeight = scrollData.ulClientHeight
@@ -644,10 +646,10 @@ update lifts selection ((State stuff) as state) msg =
             , Nothing
             )
 
-        TextfieldArrowDownPressed id index scrollData ->
+        TextfieldArrowDownPressed id nextIndex scrollData ->
             ( State
                 { stuff
-                    | keyboardFocus = Just index
+                    | keyboardFocus = Just nextIndex
                     , open = True
                     , ulScrollTop = scrollData.ulScrollTop
                     , ulClientHeight = scrollData.ulClientHeight
@@ -728,12 +730,17 @@ update lifts selection ((State stuff) as state) msg =
                     { stuff
                         | open = False
                         , keyboardFocus = Nothing
+                        , query = ""
                     }
                 , focusTextfield id
                 , Just (lifts.entrySelected a)
                 )
             else
-                ( State { stuff | keyboardFocus = Just index }
+                ( State
+                    { stuff
+                        | keyboardFocus = Just index
+                        , query = ""
+                    }
                 , focusTextfield id
                 , Just (lifts.entrySelected a)
                 )

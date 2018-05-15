@@ -56,7 +56,13 @@ closed =
         , mouseFocus = Nothing
         , scrollDataCache = Nothing
         , ulScrollTop = 0
-        , ulClientHeight = 0
+
+        -- FIXME: When we click the textfield, we cannot get the height of the
+        -- list as it has not been rendered yet. The simplest workaround is to
+        -- just put a very high default clientHeight. Are there smarter ways of
+        -- getting the height of the list just right after it is visible in the
+        -- DOM?
+        , ulClientHeight = 1000
         }
 
 
@@ -261,7 +267,7 @@ viewHelp (Config cfg) { id, labelledBy } selection (State stuff) visibleEntries 
 
                     Just index ->
                         Decode.map (ListBlured << Just)
-                            (scrollDataDecoder (index + 1 - dropped))
+                            (scrollDataDecoder (index - dropped + 1))
              , Events.on "scroll" <|
                 Decode.map2 ListScrolled
                     (Decode.at [ "target", "scrollTop" ] Decode.float)
@@ -270,7 +276,7 @@ viewHelp (Config cfg) { id, labelledBy } selection (State stuff) visibleEntries 
                 |> setDisplay stuff.open
                 |> setAriaActivedescendant
                     (\a -> printEntryId id (cfg.entryId a))
-                    (Maybe.map (\index -> index + 1 - dropped) stuff.keyboardFocus)
+                    (Maybe.map (\index -> index - dropped) stuff.keyboardFocus)
                     entries
                 |> appendAttributes cfg.ul
             )
@@ -281,13 +287,16 @@ viewHelp (Config cfg) { id, labelledBy } selection (State stuff) visibleEntries 
                   ]
                 , List.indexedMap
                     (\index a ->
+                        let
+                            actualIndex =
+                                index + dropped
+                        in
                         viewEntry cfg
                             id
                             (selection == Just a)
-                            (stuff.keyboardFocus == Just (index + 1 - dropped))
-                            (stuff.mouseFocus == Just (index + 1 - dropped))
-                            dropped
-                            index
+                            (stuff.keyboardFocus == Just actualIndex)
+                            (stuff.mouseFocus == Just actualIndex)
+                            actualIndex
                             a
                     )
                     entries
@@ -309,17 +318,17 @@ handleKeydown :
     -> Int
     -> String
     -> Decoder ( Msg a, Bool )
-handleKeydown id jumpAtEnds keyboardFocus entries entriesCount dropped code =
+handleKeydown id jumpAtEnds keyboardFocus visibleEntries entriesCount dropped code =
     let
         keyboardFocusedEntry =
             keyboardFocus
                 |> Maybe.andThen
-                    (\index -> elementAt (index - dropped) entries)
+                    (\index -> elementAt (index - dropped) visibleEntries)
     in
     case code of
         "ArrowUp" ->
             let
-                newIndex =
+                previousIndex =
                     case keyboardFocus of
                         Nothing ->
                             entriesCount - 1
@@ -331,13 +340,13 @@ handleKeydown id jumpAtEnds keyboardFocus entries entriesCount dropped code =
                                 clamp 0 (entriesCount - 1) <|
                                     (index - 1)
             in
-            scrollDataDecoder (newIndex + 1 - dropped)
-                |> Decode.map (ListArrowUpPressed id newIndex)
+            scrollDataDecoder (previousIndex - dropped + 1)
+                |> Decode.map (ListArrowUpPressed id previousIndex)
                 |> preventDefault
 
         "ArrowDown" ->
             let
-                newIndex =
+                nextIndex =
                     case keyboardFocus of
                         Nothing ->
                             0
@@ -349,8 +358,8 @@ handleKeydown id jumpAtEnds keyboardFocus entries entriesCount dropped code =
                                 clamp 0 (entriesCount - 1) <|
                                     (index + 1)
             in
-            scrollDataDecoder (newIndex + 1 - dropped)
-                |> Decode.map (ListArrowDownPressed id newIndex)
+            scrollDataDecoder (nextIndex - dropped + 1)
+                |> Decode.map (ListArrowDownPressed id nextIndex)
                 |> preventDefault
 
         "Enter" ->
@@ -387,10 +396,9 @@ viewEntry :
     -> Bool
     -> Bool
     -> Int
-    -> Int
     -> a
     -> Html (Msg a)
-viewEntry cfg id selected keyboardFocused mouseFocused dropped index a =
+viewEntry cfg id selected keyboardFocused mouseFocused index a =
     let
         { attributes, children } =
             cfg.li
@@ -401,9 +409,9 @@ viewEntry cfg id selected keyboardFocused mouseFocused dropped index a =
                 a
     in
     Html.li
-        ([ Events.onMouseEnter (EntryMouseEntered (index + 1 - dropped))
+        ([ Events.onMouseEnter (EntryMouseEntered index)
          , Events.onMouseLeave EntryMouseLeft
-         , Events.onClick (EntryClicked id cfg.closeAfterMouseSelection (index + 1 - dropped) a)
+         , Events.onClick (EntryClicked id cfg.closeAfterMouseSelection index a)
          , Attributes.id (printEntryId id (cfg.entryId a))
          , Attributes.attribute "role" "option"
          ]
@@ -584,10 +592,10 @@ update lifts selection ((State stuff) as state) msg =
         ListMouseUp ->
             ( State { stuff | preventBlur = False }, Cmd.none, Nothing )
 
-        ListArrowUpPressed id index scrollData ->
+        ListArrowUpPressed id previousId scrollData ->
             ( State
                 { stuff
-                    | keyboardFocus = Just index
+                    | keyboardFocus = Just previousId
                     , open = True
                     , ulScrollTop = scrollData.ulScrollTop
                     , ulClientHeight = scrollData.ulClientHeight
@@ -596,10 +604,10 @@ update lifts selection ((State stuff) as state) msg =
             , Nothing
             )
 
-        ListArrowDownPressed id index scrollData ->
+        ListArrowDownPressed id nextId scrollData ->
             ( State
                 { stuff
-                    | keyboardFocus = Just index
+                    | keyboardFocus = Just nextId
                     , open = True
                     , ulScrollTop = scrollData.ulScrollTop
                     , ulClientHeight = scrollData.ulClientHeight
