@@ -70,7 +70,7 @@ type OutMsg
 
 
 update msg model =
-    case Debug.log "msg" msg of
+    case msg of
         LicenseMenuMsg dropdownMenuMsg ->
             let
                 ( newDropdownMenu, cmd, maybeOutMsg ) =
@@ -262,7 +262,7 @@ simpleConfig =
                 { attributes = [ Attributes.class "button" ]
                 , children =
                     [ selection
-                        |> Maybe.withDefault "Select a license..."
+                        |> Maybe.withDefault "Select a locale..."
                         |> Html.text
                     ]
                 }
