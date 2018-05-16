@@ -42,12 +42,7 @@ import Task
 {-| -}
 type State a
     = State
-        { before : List a
-        , selection : Maybe a
-        , after : List a
-
-        -- UI
-        , open : Bool
+        { open : Bool
         , preventBlur : Bool
 
         -- FOCUS
@@ -70,13 +65,10 @@ type alias ScrollData =
 
 
 {-| -}
-closed : List a -> Maybe a -> List a -> State a
-closed initialBefore initialSelection initialAfter =
+closed : State a
+closed =
     State
-        { before = initialBefore
-        , selection = initialSelection
-        , after = initialAfter
-        , open = False
+        { open = False
         , preventBlur = False
         , keyboardFocus = Nothing
         , mouseFocus = Nothing
@@ -89,172 +81,6 @@ closed initialBefore initialSelection initialAfter =
         -- getting the height of the list just right after it is visible in the
         -- DOM?
         , ulClientHeight = 1000
-        }
-
-
-
----- READING
-
-
-{-| -}
-toList : State a -> List a
-toList (State stuff) =
-    case stuff.selection of
-        Nothing ->
-            stuff.before ++ stuff.after
-
-        Just current ->
-            stuff.before ++ current :: stuff.after
-
-
-{-| -}
-before : State a -> List a
-before (State stuff) =
-    stuff.before
-
-
-{-| -}
-selection : State a -> Maybe a
-selection (State stuff) =
-    stuff.selection
-
-
-{-| -}
-after : State a -> List a
-after (State stuff) =
-    stuff.after
-
-
-
---{-| -}
---hovered : State a -> Maybe a
---hovered ((State { mouseFocus }) as state) =
---    mouseFocus
---        |> Maybe.andThen
---            (\index ->
---                state
---                    |> toList
---                    |> elementAt index
---            )
---
---
---{-| -}
---focused : State a -> Maybe a
---focused ((State { keyboardFocus }) as state) =
---    keyboardFocus
---        |> Maybe.andThen
---            (\index ->
---                state
---                    |> toList
---                    |> elementAt index
---            )
-
-
-open : State a -> Bool
-open (State stuff) =
-    stuff.open
-
-
-
----- TRANSFORMING
-
-
-{-| -}
-map : (a -> b) -> State a -> State b
-map func (State stuff) =
-    State
-        { before = List.map func stuff.before
-        , selection = Maybe.map func stuff.selection
-        , after = List.map func stuff.after
-
-        -- UI
-        , open = stuff.open
-        , preventBlur = stuff.preventBlur
-
-        -- FOCUS
-        , keyboardFocus = stuff.keyboardFocus
-        , mouseFocus = stuff.mouseFocus
-
-        -- DOM MEASUREMENTS
-        , scrollDataCache = stuff.scrollDataCache
-        , ulScrollTop = stuff.ulScrollTop
-        , ulClientHeight = stuff.ulClientHeight
-        }
-
-
-{-| Select the first element which passes the provided predicate function. If
-no element matches, the current selection will be dismissed.
-
-**Note:** This will also close the dropdown menu.
-
--}
-select : (a -> Bool) -> State a -> State a
-select isTheOne state =
-    selectHelp isTheOne state
-        |> (\(State stuff) ->
-                State
-                    { stuff
-                        | open = False
-                        , scrollDataCache = Nothing
-                    }
-           )
-
-
-selectHelp : (a -> Bool) -> State a -> State a
-selectHelp isTheOne ((State stuff) as state) =
-    let
-        ( newBefore, newSelection, newAfter ) =
-            state
-                |> toList
-                |> List.foldl
-                    (\a ( tmpBefore, tmpSelection, tmpAfter ) ->
-                        case tmpSelection of
-                            Nothing ->
-                                if isTheOne a then
-                                    ( tmpBefore
-                                    , Just a
-                                    , tmpAfter
-                                    )
-                                else
-                                    ( a :: tmpBefore
-                                    , Nothing
-                                    , tmpAfter
-                                    )
-
-                            Just _ ->
-                                ( tmpBefore
-                                , tmpSelection
-                                , a :: tmpAfter
-                                )
-                    )
-                    ( [], Nothing, [] )
-    in
-    State
-        { stuff
-            | before = List.reverse newBefore
-            , selection = newSelection
-            , after = List.reverse newAfter
-            , keyboardFocus = Nothing
-            , mouseFocus = Nothing
-        }
-
-
-{-| -}
-append : List a -> State a -> State a
-append list (State stuff) =
-    State { stuff | after = List.append list stuff.after }
-
-
-{-| -}
-prepend : List a -> State a -> State a
-prepend list (State stuff) =
-    State
-        { stuff
-            | before = List.append stuff.before list
-            , open = False
-            , keyboardFocus = Nothing
-            , mouseFocus = Nothing
-            , scrollDataCache = Nothing
         }
 
 
@@ -323,13 +149,11 @@ view :
         , labelledBy : String
         }
     -> State a
+    -> Maybe a
+    -> List a
     -> Html (Msg a)
-view cfg ids state =
-    let
-        entries =
-            toList state
-    in
-    viewHelp cfg ids state entries <|
+view cfg ids state selection entries =
+    viewHelp cfg ids state selection entries <|
         { entries = entries
         , entriesCount = List.length entries
         , dropped = 0
@@ -347,17 +171,11 @@ viewLazy :
         , labelledBy : String
         }
     -> State a
+    -> Maybe a
+    -> List a
     -> Html (Msg a)
-viewLazy entryHeight cfg ids ((State stuff) as state) =
+viewLazy entryHeight cfg ids ((State stuff) as state) selection entries =
     let
-        entries =
-            case stuff.selection of
-                Nothing ->
-                    stuff.before ++ stuff.after
-
-                Just current ->
-                    stuff.before ++ current :: stuff.after
-
         { visibleEntries, dropped, heightAbove, heightBelow } =
             List.foldl
                 (\entry data ->
@@ -385,7 +203,7 @@ viewLazy entryHeight cfg ids ((State stuff) as state) =
                 }
                 entries
     in
-    viewHelp cfg ids state entries <|
+    viewHelp cfg ids state selection entries <|
         { entries = List.reverse visibleEntries
         , entriesCount = List.length entries
         , dropped = dropped
@@ -410,10 +228,11 @@ viewHelp :
         , labelledBy : String
         }
     -> State a
+    -> Maybe a
     -> List a
     -> VisibleEntries a
     -> Html (Msg a)
-viewHelp (Config cfg) { id, labelledBy } (State stuff) allEntries visibleEntries =
+viewHelp (Config cfg) { id, labelledBy } (State stuff) selection allEntries visibleEntries =
     let
         { entries, entriesCount, dropped, heightAbove, heightBelow } =
             visibleEntries
@@ -423,7 +242,7 @@ viewHelp (Config cfg) { id, labelledBy } (State stuff) allEntries visibleEntries
 
         { attributes, children } =
             cfg.button
-                { selection = stuff.selection
+                { selection = selection
                 , open = stuff.open
                 }
     in
@@ -569,7 +388,7 @@ viewHelp (Config cfg) { id, labelledBy } (State stuff) allEntries visibleEntries
                         in
                         viewEntry cfg
                             id
-                            (stuff.selection == Just a)
+                            (selection == Just a)
                             (stuff.keyboardFocus == Just (cfg.entryId a))
                             (stuff.mouseFocus == Just (cfg.entryId a))
                             actualIndex
@@ -1034,11 +853,11 @@ type Msg a
 
 
 {-| -}
-update : State a -> Msg a -> ( State a, Cmd (Msg a) )
-update ((State stuff) as state) msg =
+update : (a -> outMsg) -> State a -> Msg a -> ( State a, Cmd (Msg a), Maybe outMsg )
+update entrySelected ((State stuff) as state) msg =
     case msg of
         NoOp ->
-            ( state, Cmd.none )
+            ( state, Cmd.none, Nothing )
 
         -- BUTTON
         ButtonClicked id ->
@@ -1051,6 +870,7 @@ update ((State stuff) as state) msg =
               , focusList id
               ]
                 |> Cmd.batch
+            , Nothing
             )
 
         ButtonArrowUpPressed id newFocus ->
@@ -1065,6 +885,7 @@ update ((State stuff) as state) msg =
                     |> Maybe.withDefault Cmd.none
                 , focusList id
                 ]
+            , Nothing
             )
 
         ButtonArrowDownPressed id newFocus ->
@@ -1079,6 +900,7 @@ update ((State stuff) as state) msg =
                     |> Maybe.withDefault Cmd.none
                 , focusList id
                 ]
+            , Nothing
             )
 
         ButtonArrowUpPressedWithoutFocus id newFocus ->
@@ -1092,6 +914,7 @@ update ((State stuff) as state) msg =
                     |> Task.attempt (\_ -> NoOp)
                 , focusList id
                 ]
+            , Nothing
             )
 
         ButtonArrowDownPressedWithoutFocus id newFocus ->
@@ -1105,6 +928,7 @@ update ((State stuff) as state) msg =
                     |> Task.attempt (\_ -> NoOp)
                 , focusList id
                 ]
+            , Nothing
             )
 
         ButtonArrowUpPressedWrapping id newFocus ->
@@ -1118,6 +942,7 @@ update ((State stuff) as state) msg =
                     |> Task.attempt (\_ -> NoOp)
                 , focusList id
                 ]
+            , Nothing
             )
 
         ButtonArrowDownPressedWrapping id newFocus ->
@@ -1131,14 +956,15 @@ update ((State stuff) as state) msg =
                     |> Task.attempt (\_ -> NoOp)
                 , focusList id
                 ]
+            , Nothing
             )
 
         -- LIST
         ListMouseDown ->
-            ( State { stuff | preventBlur = True }, Cmd.none )
+            ( State { stuff | preventBlur = True }, Cmd.none, Nothing )
 
         ListMouseUp ->
-            ( State { stuff | preventBlur = False }, Cmd.none )
+            ( State { stuff | preventBlur = False }, Cmd.none, Nothing )
 
         ListArrowUpPressed id newFocus maybeScrollData ->
             case maybeScrollData of
@@ -1151,6 +977,7 @@ update ((State stuff) as state) msg =
                     , stuff.scrollDataCache
                         |> Maybe.map (centerScrollTop id)
                         |> Maybe.withDefault Cmd.none
+                    , Nothing
                     )
 
                 Just scrollData ->
@@ -1163,6 +990,7 @@ update ((State stuff) as state) msg =
                             , scrollDataCache = Just scrollData
                         }
                     , adjustScrollTop id scrollData
+                    , Nothing
                     )
 
         ListArrowDownPressed id newFocus maybeScrollData ->
@@ -1176,6 +1004,7 @@ update ((State stuff) as state) msg =
                     , stuff.scrollDataCache
                         |> Maybe.map (centerScrollTop id)
                         |> Maybe.withDefault Cmd.none
+                    , Nothing
                     )
 
                 Just scrollData ->
@@ -1188,6 +1017,7 @@ update ((State stuff) as state) msg =
                             , scrollDataCache = Just scrollData
                         }
                     , adjustScrollTop id scrollData
+                    , Nothing
                     )
 
         ListArrowUpPressedWihoutFocus id newFocus ->
@@ -1198,6 +1028,7 @@ update ((State stuff) as state) msg =
                 }
             , Browser.setScrollBottom (printListId id) 0
                 |> Task.attempt (\_ -> NoOp)
+            , Nothing
             )
 
         ListArrowDownPressedWihoutFocus id newFocus ->
@@ -1208,6 +1039,7 @@ update ((State stuff) as state) msg =
                 }
             , Browser.setScrollTop (printListId id) 0
                 |> Task.attempt (\_ -> NoOp)
+            , Nothing
             )
 
         ListArrowUpPressedWrapping id newFocus ->
@@ -1218,6 +1050,7 @@ update ((State stuff) as state) msg =
                 }
             , Browser.setScrollBottom (printListId id) 0
                 |> Task.attempt (\_ -> NoOp)
+            , Nothing
             )
 
         ListArrowDownPressedWrapping id newFocus ->
@@ -1228,21 +1061,19 @@ update ((State stuff) as state) msg =
                 }
             , Browser.setScrollTop (printListId id) 0
                 |> Task.attempt (\_ -> NoOp)
+            , Nothing
             )
 
         ListEnterPressed id a ->
-            ( state
-                |> selectHelp ((==) a)
-                |> (\(State newStuff) ->
-                        State
-                            { newStuff | open = False }
-                   )
+            ( State { stuff | open = False }
             , focusButton id
+            , Just (entrySelected a)
             )
 
         ListEscapePressed id ->
             ( State { stuff | open = False }
             , focusButton id
+            , Nothing
             )
 
         ListBlured ->
@@ -1255,6 +1086,7 @@ update ((State stuff) as state) msg =
                             False
                 }
             , Cmd.none
+            , Nothing
             )
 
         ListScrolled ulScrollTop ulClientHeight ->
@@ -1264,32 +1096,32 @@ update ((State stuff) as state) msg =
                     , ulClientHeight = ulClientHeight
                 }
             , Cmd.none
+            , Nothing
             )
 
         -- ENTRY
         EntryMouseEntered newId ->
             ( State { stuff | mouseFocus = Just newId }
             , Cmd.none
+            , Nothing
             )
 
         EntryMouseLeft ->
             ( State { stuff | mouseFocus = Nothing }
             , Cmd.none
+            , Nothing
             )
 
         EntryClicked id closeAfterMouseSelection clickedId a ->
-            ( state
-                |> selectHelp ((==) a)
-                |> (\(State newStuff) ->
-                        if closeAfterMouseSelection then
-                            State { newStuff | open = False }
-                        else
-                            State { newStuff | keyboardFocus = Just clickedId }
-                   )
+            ( if closeAfterMouseSelection then
+                State { stuff | open = False }
+              else
+                State { stuff | keyboardFocus = Just clickedId }
             , if closeAfterMouseSelection then
                 focusButton id
               else
                 Cmd.none
+            , Just (entrySelected a)
             )
 
 

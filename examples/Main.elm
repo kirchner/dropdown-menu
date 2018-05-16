@@ -39,6 +39,7 @@ main =
 type alias Model =
     { selectedLicense : Maybe String
     , licenseMenu : DropdownMenu.Filterable.State String
+    , selectedLocale : Maybe String
     , localeMenu : DropdownMenu.Optional.State String
     , selectedNumber : Maybe String
     , numberMenu : DropdownMenu.Filterable.State String
@@ -48,7 +49,8 @@ type alias Model =
 init _ =
     ( { selectedLicense = Nothing
       , licenseMenu = DropdownMenu.Filterable.closed
-      , localeMenu = DropdownMenu.Optional.closed [] Nothing locales
+      , selectedLocale = Nothing
+      , localeMenu = DropdownMenu.Optional.closed
       , selectedNumber = Nothing
       , numberMenu = DropdownMenu.Filterable.closed
       }
@@ -97,12 +99,22 @@ update msg model =
 
         LocaleMenuMsg dropdownMenuMsg ->
             let
-                ( newLocaleMenu, cmd ) =
-                    DropdownMenu.Optional.update
+                ( newLocaleMenu, cmd, outMsg ) =
+                    DropdownMenu.Optional.update EntrySelected
                         model.localeMenu
                         dropdownMenuMsg
+
+                newModel =
+                    { model
+                        | localeMenu = newLocaleMenu
+                    }
             in
-            ( { model | localeMenu = newLocaleMenu }
+            ( case outMsg of
+                Just (EntrySelected newSelection) ->
+                    { newModel | selectedLocale = Just newSelection }
+
+                _ ->
+                    newModel
             , Cmd.map LocaleMenuMsg cmd
             )
 
@@ -143,7 +155,7 @@ view model =
         , Attributes.style "flex-flow" "column"
         ]
         [ Html.lazy2 viewLicenses model.selectedLicense model.licenseMenu
-        , Html.lazy viewLocales model.localeMenu
+        , Html.lazy2 viewLocales model.selectedLocale model.localeMenu
         , Html.lazy2 viewNumbers model.selectedNumber model.numberMenu
         ]
 
@@ -165,7 +177,7 @@ viewLicenses selectedLicense licenseMenu =
         ]
 
 
-viewLocales localeMenu =
+viewLocales selectedLocale localeMenu =
     Html.div []
         [ Html.span
             [ Attributes.id "locale__label" ]
@@ -176,6 +188,8 @@ viewLocales localeMenu =
             , labelledBy = "locale__label"
             }
             localeMenu
+            selectedLocale
+            locales
             |> Html.map LocaleMenuMsg
         ]
 
