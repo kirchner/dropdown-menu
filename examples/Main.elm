@@ -20,7 +20,7 @@ module Main exposing (main)
 
 import Browser
 import DropdownMenu.Filterable
-import DropdownMenu.Simple
+import DropdownMenu.Optional
 import Html exposing (Html)
 import Html.Attributes as Attributes
 import Html.Lazy as Html
@@ -39,8 +39,7 @@ main =
 type alias Model =
     { selectedLicense : Maybe String
     , licenseMenu : DropdownMenu.Filterable.State String
-    , selectedLocale : Maybe String
-    , localeMenu : DropdownMenu.Simple.State String
+    , localeMenu : DropdownMenu.Optional.State String
     , selectedNumber : Maybe String
     , numberMenu : DropdownMenu.Filterable.State String
     }
@@ -49,8 +48,7 @@ type alias Model =
 init _ =
     ( { selectedLicense = Nothing
       , licenseMenu = DropdownMenu.Filterable.closed
-      , selectedLocale = Nothing
-      , localeMenu = DropdownMenu.Simple.closed
+      , localeMenu = DropdownMenu.Optional.closed [] Nothing locales
       , selectedNumber = Nothing
       , numberMenu = DropdownMenu.Filterable.closed
       }
@@ -60,7 +58,7 @@ init _ =
 
 type Msg
     = LicenseMenuMsg (DropdownMenu.Filterable.Msg String)
-    | LocaleMenuMsg (DropdownMenu.Simple.Msg String)
+    | LocaleMenuMsg (DropdownMenu.Optional.Msg String)
     | NumberMenuMsg (DropdownMenu.Filterable.Msg String)
 
 
@@ -99,27 +97,12 @@ update msg model =
 
         LocaleMenuMsg dropdownMenuMsg ->
             let
-                ( newLocaleMenu, cmd, maybeOutMsg ) =
-                    DropdownMenu.Simple.update
-                        { entrySelected = EntrySelected
-                        , selectionDismissed = SelectionDismissed
-                        }
-                        model.selectedLocale
+                ( newLocaleMenu, cmd ) =
+                    DropdownMenu.Optional.update
                         model.localeMenu
                         dropdownMenuMsg
-
-                newModel =
-                    { model | localeMenu = newLocaleMenu }
             in
-            ( case maybeOutMsg of
-                Just (EntrySelected entry) ->
-                    { newModel | selectedLocale = Just entry }
-
-                Just SelectionDismissed ->
-                    { newModel | selectedLocale = Nothing }
-
-                Nothing ->
-                    newModel
+            ( { model | localeMenu = newLocaleMenu }
             , Cmd.map LocaleMenuMsg cmd
             )
 
@@ -160,7 +143,7 @@ view model =
         , Attributes.style "flex-flow" "column"
         ]
         [ Html.lazy2 viewLicenses model.selectedLicense model.licenseMenu
-        , Html.lazy2 viewLocales model.selectedLocale model.localeMenu
+        , Html.lazy viewLocales model.localeMenu
         , Html.lazy2 viewNumbers model.selectedNumber model.numberMenu
         ]
 
@@ -182,19 +165,17 @@ viewLicenses selectedLicense licenseMenu =
         ]
 
 
-viewLocales selectedLocale localeMenu =
+viewLocales localeMenu =
     Html.div []
         [ Html.span
             [ Attributes.id "locale__label" ]
             [ Html.text "Locale" ]
-        , locales
-            |> DropdownMenu.Simple.viewLazy (\_ -> 42)
-                simpleConfig
-                { id = "locale"
-                , labelledBy = "locale__label"
-                }
-                selectedLocale
-                localeMenu
+        , DropdownMenu.Optional.viewLazy (\_ -> 42)
+            optionalConfig
+            { id = "locale"
+            , labelledBy = "locale__label"
+            }
+            localeMenu
             |> Html.map LocaleMenuMsg
         ]
 
@@ -246,9 +227,9 @@ filterableConfig =
         }
 
 
-simpleConfig : DropdownMenu.Simple.Config String
-simpleConfig =
-    DropdownMenu.Simple.config
+optionalConfig : DropdownMenu.Optional.Config String
+optionalConfig =
+    DropdownMenu.Optional.config
         { matchesQuery =
             \query value ->
                 String.toLower value
