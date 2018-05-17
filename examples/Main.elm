@@ -50,7 +50,7 @@ init _ =
     ( { selectedLicense = Nothing
       , licenseMenu = DropdownMenu.Filterable.closed
       , selectedLocale = Nothing
-      , localeMenu = DropdownMenu.Optional.closed
+      , localeMenu = DropdownMenu.Optional.closed locales
       , selectedNumber = Nothing
       , numberMenu = DropdownMenu.Filterable.closed
       }
@@ -182,14 +182,13 @@ viewLocales selectedLocale localeMenu =
         [ Html.span
             [ Attributes.id "locale__label" ]
             [ Html.text "Locale" ]
-        , DropdownMenu.Optional.viewLazy (\_ -> 42)
-            optionalConfig
-            { id = "locale"
-            , labelledBy = "locale__label"
-            }
-            localeMenu
-            selectedLocale
-            locales
+        , selectedLocale
+            |> DropdownMenu.Optional.viewLazy (\_ -> 42)
+                optionalConfig
+                { id = "locale"
+                , labelledBy = "locale__label"
+                }
+                localeMenu
             |> Html.map LocaleMenuMsg
         ]
 

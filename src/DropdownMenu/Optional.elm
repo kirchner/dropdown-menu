@@ -42,7 +42,8 @@ import Task
 {-| -}
 type State a
     = State
-        { open : Bool
+        { entries : List a
+        , open : Bool
         , preventBlur : Bool
 
         -- FOCUS
@@ -65,10 +66,11 @@ type alias ScrollData =
 
 
 {-| -}
-closed : State a
-closed =
+closed : List a -> State a
+closed entries =
     State
-        { open = False
+        { entries = entries
+        , open = False
         , preventBlur = False
         , keyboardFocus = Nothing
         , mouseFocus = Nothing
@@ -150,9 +152,8 @@ view :
         }
     -> State a
     -> Maybe a
-    -> List a
     -> Html (Msg a)
-view cfg ids state selection entries =
+view cfg ids ((State { entries }) as state) selection =
     viewHelp cfg ids state selection entries <|
         { entries = entries
         , entriesCount = List.length entries
@@ -172,9 +173,8 @@ viewLazy :
         }
     -> State a
     -> Maybe a
-    -> List a
     -> Html (Msg a)
-viewLazy entryHeight cfg ids ((State stuff) as state) selection entries =
+viewLazy entryHeight cfg ids ((State stuff) as state) selection =
     let
         { visibleEntries, dropped, heightAbove, heightBelow } =
             List.foldl
@@ -201,11 +201,11 @@ viewLazy entryHeight cfg ids ((State stuff) as state) selection entries =
                 , heightVisible = 0
                 , heightBelow = 0
                 }
-                entries
+                stuff.entries
     in
-    viewHelp cfg ids state selection entries <|
+    viewHelp cfg ids state selection stuff.entries <|
         { entries = List.reverse visibleEntries
-        , entriesCount = List.length entries
+        , entriesCount = List.length stuff.entries
         , dropped = dropped
         , heightAbove = heightAbove + min 0 (heightBelow - 200)
         , heightBelow = heightBelow + min 0 (heightAbove - 200)
