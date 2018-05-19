@@ -537,11 +537,7 @@ listKeydown id jumpAtEnds entryId keyboardFocus allEntries droppedAboveFirst dro
                 \menuId newIndex newEntryId ->
                     let
                         domIndex =
-                            if newIndex - droppedAboveFirst < 0 then
-                                -- newEntry is not rendered, should never
-                                -- happen
-                                0
-                            else if newIndex - droppedAboveFirst < 3 then
+                            if newIndex - droppedAboveFirst < 3 then
                                 -- newEntry is above visible entries
                                 newIndex - droppedAboveFirst + 1
                             else if
@@ -552,22 +548,13 @@ listKeydown id jumpAtEnds entryId keyboardFocus allEntries droppedAboveFirst dro
                             then
                                 -- newEntry is visible
                                 newIndex - droppedAboveFirst - droppedAboveSecond + 2
-                            else if
-                                newIndex
-                                    - droppedAboveFirst
-                                    - droppedAboveSecond
-                                    - droppedBelowFirst
-                                    - displayed
-                                    < 3
-                            then
+                            else
                                 -- newEntry is below visible entries
                                 newIndex
                                     - droppedAboveFirst
                                     - droppedAboveSecond
                                     - droppedBelowFirst
                                     + 3
-                            else
-                                0
                     in
                     scrollDataDecoder domIndex
                         |> Decode.map
@@ -587,11 +574,7 @@ listKeydown id jumpAtEnds entryId keyboardFocus allEntries droppedAboveFirst dro
                 \menuId newIndex newEntryId ->
                     let
                         domIndex =
-                            if newIndex - droppedAboveFirst < 0 then
-                                -- newEntry is not rendered, should never
-                                -- happen
-                                0
-                            else if newIndex - droppedAboveFirst < 3 then
+                            if newIndex - droppedAboveFirst < 3 then
                                 -- newEntry is above visible entries
                                 newIndex - droppedAboveFirst + 1
                             else if
@@ -602,22 +585,13 @@ listKeydown id jumpAtEnds entryId keyboardFocus allEntries droppedAboveFirst dro
                             then
                                 -- newEntry is visible
                                 newIndex - droppedAboveFirst - droppedAboveSecond + 2
-                            else if
-                                newIndex
-                                    - droppedAboveFirst
-                                    - droppedAboveSecond
-                                    - droppedBelowFirst
-                                    - displayed
-                                    < 3
-                            then
+                            else
                                 -- newEntry is below visible entries
                                 newIndex
                                     - droppedAboveFirst
                                     - droppedAboveSecond
                                     - droppedBelowFirst
                                     + 3
-                            else
-                                0
                     in
                     scrollDataDecoder domIndex
                         |> Decode.map
