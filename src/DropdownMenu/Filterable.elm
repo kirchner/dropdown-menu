@@ -34,6 +34,31 @@ import Browser
 import Html exposing (Html)
 import Html.Attributes as Attributes
 import Html.Events as Events
+import Internal.Shared
+    exposing
+        ( Next(..)
+        , Previous(..)
+        , RenderedEntries
+        , ScrollAction(..)
+        , adjustScrollTop
+        , allowDefault
+        , appendAttributes
+        , centerScrollTop
+        , computeRenderedEntries
+        , domIndex
+        , find
+        , findNext
+        , findPrevious
+        , last
+        , preventDefault
+        , printEntryId
+        , printListId
+        , resetScrollTop
+        , setAriaActivedescendant
+        , setAriaExpanded
+        , setDisplay
+        , viewEntries
+        )
 import Json.Decode as Decode exposing (Decoder)
 import Json.Decode.Pipeline as Decode
 import Task
@@ -42,13 +67,13 @@ import Task
 {-| -}
 type State a
     = State
-        { open : Bool
+        { query : String
+        , open : Bool
         , preventBlur : Bool
-        , query : String
 
         -- FOCUS
-        , keyboardFocus : Maybe Int
-        , mouseFocus : Maybe Int
+        , keyboardFocus : Maybe String
+        , mouseFocus : Maybe String
 
         -- DOM MEASUREMENTS
         , scrollDataCache : Maybe ScrollData
@@ -69,9 +94,9 @@ type alias ScrollData =
 closed : State a
 closed =
     State
-        { open = False
+        { query = ""
+        , open = False
         , preventBlur = False
-        , query = ""
         , keyboardFocus = Nothing
         , mouseFocus = Nothing
         , scrollDataCache = Nothing
@@ -162,12 +187,18 @@ view ((Config { matchesQuery }) as cfg) ids selection ((State { query }) as stat
             entries
                 |> List.filter (matchesQuery query)
     in
-    viewHelp cfg ids selection state <|
-        { entries = filteredEntries
-        , entriesCount = List.length filteredEntries
-        , dropped = 0
-        , heightAbove = 0
-        , heightBelow = 0
+    viewHelp cfg ids state selection filteredEntries <|
+        { spaceAboveFirst = 0
+        , droppedAboveFirst = 0
+        , spaceAboveSecond = 0
+        , droppedAboveSecond = 0
+        , spaceBelowFirst = 0
+        , droppedBelowFirst = 0
+        , spaceBelowSecond = 0
+        , droppedBelowSecond = 0
+        , entriesAbove = []
+        , visibleEntries = filteredEntries
+        , entriesBelow = []
         }
 
 
@@ -184,55 +215,26 @@ viewLazy :
     -> State a
     -> List a
     -> Html (Msg a)
-viewLazy entryHeight ((Config { matchesQuery }) as cfg) ids selection ((State stuff) as state) entries =
+viewLazy entryHeight ((Config { matchesQuery, entryId }) as cfg) ids selection ((State stuff) as state) entries =
     let
         filteredEntries =
             entries
                 |> List.filter (matchesQuery stuff.query)
 
-        { visibleEntries, dropped, heightAbove, heightBelow } =
-            List.foldl
-                (\entry data ->
-                    if data.heightAbove < stuff.ulScrollTop - 200 then
-                        { data
-                            | dropped = data.dropped + 1
-                            , heightAbove = data.heightAbove + entryHeight entry
-                        }
-                    else if
-                        (data.heightAbove + data.heightVisible)
-                            > (stuff.ulScrollTop + stuff.ulClientHeight + 200)
-                    then
-                        { data | heightBelow = data.heightBelow + entryHeight entry }
-                    else
-                        { data
-                            | visibleEntries = entry :: data.visibleEntries
-                            , heightVisible = data.heightVisible + entryHeight entry
-                        }
-                )
-                { visibleEntries = []
-                , dropped = 0
-                , heightAbove = 0
-                , heightVisible = 0
-                , heightBelow = 0
-                }
-                filteredEntries
+        maybeFocusIndex =
+            stuff.keyboardFocus
+                |> Maybe.andThen
+                    (\focus ->
+                        find entryId focus filteredEntries
+                    )
+                |> Maybe.map Tuple.first
     in
-    viewHelp cfg ids selection state <|
-        { entries = List.reverse visibleEntries
-        , entriesCount = List.length filteredEntries
-        , dropped = dropped
-        , heightAbove = heightAbove + min 0 (heightBelow - 200)
-        , heightBelow = heightBelow + min 0 (heightAbove - 200)
-        }
-
-
-type alias VisibleEntries a =
-    { entries : List a
-    , entriesCount : Int
-    , dropped : Int
-    , heightAbove : Float
-    , heightBelow : Float
-    }
+    filteredEntries
+        |> computeRenderedEntries entryHeight
+            stuff.ulScrollTop
+            stuff.ulClientHeight
+            maybeFocusIndex
+        |> viewHelp cfg ids state selection filteredEntries
 
 
 viewHelp :
@@ -242,55 +244,53 @@ viewHelp :
         , labelledBy : String
         , placeholder : String
         }
-    -> Maybe a
     -> State a
-    -> VisibleEntries a
+    -> Maybe a
+    -> List a
+    -> RenderedEntries a
     -> Html (Msg a)
-viewHelp (Config cfg) { id, labelledBy, placeholder } selection (State stuff) visibleEntries =
+viewHelp (Config cfg) ids (State stuff) selection allEntries renderedEntries =
     let
-        { entries, entriesCount, dropped, heightAbove, heightBelow } =
-            visibleEntries
+        displayed =
+            List.length renderedEntries.visibleEntries
     in
     Html.div
-        (appendAttributes cfg.container [])
+        (appendAttributes NoOp cfg.container [])
         [ Html.input
-            ([ Attributes.id (printTextfieldId id)
+            ([ Attributes.id (printTextfieldId ids.id)
              , Attributes.type_ "text"
              , Attributes.attribute "aria-haspopup" "listbox"
              , Attributes.attribute "aria-labelledby"
-                (printTextfieldId id ++ " " ++ labelledBy)
+                (printTextfieldId ids.id ++ " " ++ ids.labelledBy)
              , Attributes.style "position" "relative"
              , Attributes.tabindex 0
              , selection
                 |> Maybe.map cfg.printEntry
-                |> Maybe.withDefault placeholder
+                |> Maybe.withDefault ids.placeholder
                 |> Attributes.placeholder
              , Attributes.value stuff.query
-             , Events.onClick (TextfieldClicked id)
-             , Events.onInput (TextfieldChanged id)
+             , Events.onClick (TextfieldClicked ids.id)
+             , Events.onInput (TextfieldChanged ids.id)
              , Events.preventDefaultOn "keydown"
                 (Decode.field "key" Decode.string
                     |> Decode.andThen
-                        (handleKeydown id
+                        (textfieldKeydown ids.id
                             cfg.jumpAtEnds
+                            cfg.entryId
                             stuff.open
                             stuff.keyboardFocus
-                            entries
-                            entriesCount
-                            dropped
+                            allEntries
+                            renderedEntries.droppedAboveFirst
+                            renderedEntries.droppedAboveSecond
+                            renderedEntries.droppedBelowFirst
+                            displayed
                         )
                 )
              , Events.on "blur" <|
-                case stuff.keyboardFocus of
-                    Nothing ->
-                        Decode.succeed (TextfieldBlured Nothing)
-
-                    Just index ->
-                        Decode.map (TextfieldBlured << Just)
-                            (scrollDataDecoder (index - dropped + 1))
+                Decode.succeed TextfieldBlured
              ]
                 |> setAriaExpanded stuff.open
-                |> appendAttributes
+                |> appendAttributes NoOp
                     (cfg.textfield
                         { selection = selection
                         , open = stuff.open
@@ -299,216 +299,186 @@ viewHelp (Config cfg) { id, labelledBy, placeholder } selection (State stuff) vi
             )
             []
         , Html.ul
-            ([ Attributes.id (printListId id)
+            ([ Attributes.id (printListId ids.id)
              , Attributes.attribute "role" "listbox"
-             , Attributes.attribute "aria-labelledby" labelledBy
+             , Attributes.attribute "aria-labelledby" ids.labelledBy
              , Attributes.style "position" "absolute"
-             , Events.on "mousedown" (Decode.succeed (ListMouseDown id))
+             , Events.on "mousedown" (Decode.succeed (ListMouseDown ids.id))
              , Events.on "mouseup" (Decode.succeed ListMouseUp)
              , Events.on "scroll" <|
-                Decode.map2 (ListScrolled id)
+                Decode.map2 (ListScrolled ids.id)
                     (Decode.at [ "target", "scrollTop" ] Decode.float)
                     (Decode.at [ "target", "clientHeight" ] Decode.float)
              ]
                 |> setDisplay stuff.open
                 |> setAriaActivedescendant
-                    (\a -> printEntryId id (cfg.entryId a))
-                    (Maybe.map (\index -> index - dropped) stuff.keyboardFocus)
-                    entries
-                |> appendAttributes cfg.ul
+                    ids.id
+                    cfg.entryId
+                    stuff.keyboardFocus
+                    allEntries
+                |> appendAttributes NoOp cfg.ul
             )
-            (List.concat
-                [ [ Html.li
-                        [ Attributes.style "height" (String.fromFloat heightAbove ++ "px") ]
-                        []
-                  ]
-                , List.indexedMap
-                    (\index a ->
-                        let
-                            actualIndex =
-                                index + dropped
-                        in
-                        viewEntry cfg
-                            id
-                            (selection == Just a)
-                            (stuff.keyboardFocus == Just actualIndex)
-                            (stuff.mouseFocus == Just actualIndex)
-                            actualIndex
-                            a
-                    )
-                    entries
-                , [ Html.li
-                        [ Attributes.style "height" (String.fromFloat heightBelow ++ "px") ]
-                        []
-                  ]
-                ]
+            (viewEntries
+                { entryMouseEntered = EntryMouseEntered
+                , entryMouseLeft = EntryMouseLeft
+                , entryClicked = EntryClicked
+                , noOp = NoOp
+                }
+                cfg
+                ids.id
+                stuff.keyboardFocus
+                stuff.mouseFocus
+                selection
+                renderedEntries
             )
         ]
 
 
-handleKeydown :
+textfieldKeydown :
     String
     -> Bool
+    -> (a -> String)
     -> Bool
-    -> Maybe Int
+    -> Maybe String
     -> List a
+    -> Int
+    -> Int
     -> Int
     -> Int
     -> String
     -> Decoder ( Msg a, Bool )
-handleKeydown id jumpAtEnds open keyboardFocus entries entriesCount dropped code =
-    let
-        keyboardFocusedEntry =
+textfieldKeydown id jumpAtEnds entryId open keyboardFocus allEntries droppedAboveFirst droppedAboveSecond droppedBelowFirst displayed code =
+    case code of
+        "Enter" ->
             keyboardFocus
                 |> Maybe.andThen
-                    (\index -> elementAt (index - dropped) entries)
-    in
-    case code of
+                    (\currentFocus ->
+                        find entryId currentFocus allEntries
+                    )
+                |> Maybe.map
+                    (\( _, entry ) ->
+                        Decode.succeed (TextfieldEnterPressed entry)
+                            |> allowDefault
+                    )
+                |> Maybe.withDefault
+                    (Decode.fail "not handling that key here")
+
+        "Escape" ->
+            Decode.succeed TextfieldEscapePressed
+                |> allowDefault
+
         " " ->
             if open then
-                Decode.fail "not handling that key here"
+                Decode.succeed NoOp
+                    |> allowDefault
             else
                 Decode.succeed (TextfieldSpacePressed id)
                     |> preventDefault
 
         "ArrowUp" ->
             let
-                previousIndex =
-                    case keyboardFocus of
+                focusLastEntry =
+                    case last allEntries of
                         Nothing ->
-                            entriesCount - 1
+                            Decode.fail "not handling that key here"
 
-                        Just index ->
-                            if jumpAtEnds && index == 0 then
-                                entriesCount - 1
-                            else
-                                clamp 0 (entriesCount - 1) <|
-                                    (index - 1)
+                        Just lastEntry ->
+                            Decode.succeed <|
+                                TextfieldArrowPressed Nothing ScrollToBottom id (entryId lastEntry)
             in
-            scrollDataDecoder (previousIndex - dropped + 1)
-                |> Decode.map (TextfieldArrowUpPressed id previousIndex)
-                |> preventDefault
+            case keyboardFocus of
+                Nothing ->
+                    preventDefault <|
+                        focusLastEntry
+
+                Just currentFocus ->
+                    case findPrevious entryId currentFocus allEntries of
+                        Just (Last lastEntry) ->
+                            if jumpAtEnds then
+                                preventDefault <|
+                                    Decode.succeed <|
+                                        TextfieldArrowPressed Nothing
+                                            ScrollToBottom
+                                            id
+                                            (entryId lastEntry)
+                            else
+                                preventDefault <|
+                                    Decode.succeed <|
+                                        TextfieldArrowPressed Nothing ScrollToTop id currentFocus
+
+                        Just (Previous newIndex newEntry) ->
+                            domIndex newIndex
+                                droppedAboveFirst
+                                droppedAboveSecond
+                                droppedBelowFirst
+                                displayed
+                                |> scrollDataDecoder
+                                |> Decode.map
+                                    (\scrollData ->
+                                        TextfieldArrowPressed (Just scrollData)
+                                            UseScrollData
+                                            id
+                                            (entryId newEntry)
+                                    )
+                                |> preventDefault
+
+                        Nothing ->
+                            focusLastEntry
+                                |> preventDefault
 
         "ArrowDown" ->
             let
-                nextIndex =
-                    case keyboardFocus of
+                focusFirstEntry =
+                    case List.head allEntries of
                         Nothing ->
-                            0
+                            Decode.fail "not handling that key here"
 
-                        Just index ->
-                            if jumpAtEnds && (index == entriesCount - 1) then
-                                0
-                            else
-                                clamp 0 (entriesCount - 1) <|
-                                    (index + 1)
+                        Just lastEntry ->
+                            Decode.succeed <|
+                                TextfieldArrowPressed Nothing ScrollToTop id (entryId lastEntry)
             in
-            scrollDataDecoder (nextIndex - dropped + 1)
-                |> Decode.map (TextfieldArrowDownPressed id nextIndex)
-                |> preventDefault
-
-        "Enter" ->
-            case keyboardFocusedEntry of
-                Just entry ->
-                    Decode.succeed (TextfieldEnterPressed entry)
-                        |> allowDefault
-
+            case keyboardFocus of
                 Nothing ->
-                    Decode.fail "not handling that key here"
+                    preventDefault <|
+                        focusFirstEntry
 
-        "Escape" ->
-            Decode.succeed TextfieldEscapePressed
-                |> allowDefault
+                Just currentFocus ->
+                    case findNext entryId currentFocus allEntries of
+                        Just (First firstEntry) ->
+                            if jumpAtEnds then
+                                preventDefault <|
+                                    Decode.succeed <|
+                                        TextfieldArrowPressed Nothing
+                                            ScrollToTop
+                                            id
+                                            (entryId firstEntry)
+                            else
+                                preventDefault <|
+                                    Decode.succeed <|
+                                        TextfieldArrowPressed Nothing ScrollToBottom id currentFocus
+
+                        Just (Next newIndex newEntry) ->
+                            domIndex newIndex
+                                droppedAboveFirst
+                                droppedAboveSecond
+                                droppedBelowFirst
+                                displayed
+                                |> scrollDataDecoder
+                                |> Decode.map
+                                    (\scrollData ->
+                                        TextfieldArrowPressed (Just scrollData)
+                                            UseScrollData
+                                            id
+                                            (entryId newEntry)
+                                    )
+                                |> preventDefault
+
+                        Nothing ->
+                            focusFirstEntry
+                                |> preventDefault
 
         _ ->
             Decode.fail "not handling that key here"
-
-
-viewEntry :
-    { cfg
-        | closeAfterMouseSelection : Bool
-        , li :
-            { selected : Bool
-            , keyboardFocused : Bool
-            , mouseFocused : Bool
-            }
-            -> a
-            -> HtmlDetails
-        , entryId : a -> String
-    }
-    -> String
-    -> Bool
-    -> Bool
-    -> Bool
-    -> Int
-    -> a
-    -> Html (Msg a)
-viewEntry cfg id selected keyboardFocused mouseFocused index a =
-    let
-        { attributes, children } =
-            cfg.li
-                { selected = selected
-                , keyboardFocused = keyboardFocused
-                , mouseFocused = mouseFocused
-                }
-                a
-    in
-    Html.li
-        ([ Events.onMouseEnter (EntryMouseEntered index)
-         , Events.onMouseLeave EntryMouseLeft
-         , Events.onClick (EntryClicked id cfg.closeAfterMouseSelection index a)
-         , Attributes.id (printEntryId id (cfg.entryId a))
-         , Attributes.attribute "role" "option"
-         ]
-            |> appendAttributes attributes
-        )
-        (children
-            |> List.map (Html.map (\_ -> NoOp))
-        )
-
-
-
----- VIEW HELPER
-
-
-setDisplay : Bool -> List (Html.Attribute msg) -> List (Html.Attribute msg)
-setDisplay open attrs =
-    if open then
-        attrs
-    else
-        Attributes.style "display" "none" :: attrs
-
-
-setAriaExpanded : Bool -> List (Html.Attribute msg) -> List (Html.Attribute msg)
-setAriaExpanded open attrs =
-    if open then
-        Attributes.attribute "aria-expanded" "true" :: attrs
-    else
-        attrs
-
-
-setAriaActivedescendant :
-    (a -> String)
-    -> Maybe Int
-    -> List a
-    -> List (Html.Attribute msg)
-    -> List (Html.Attribute msg)
-setAriaActivedescendant entryId keyboardFocus entries attrs =
-    case keyboardFocus of
-        Nothing ->
-            attrs
-
-        Just index ->
-            entries
-                |> List.drop index
-                |> List.head
-                |> Maybe.map
-                    (\a ->
-                        Attributes.attribute "aria-activedescendant"
-                            (entryId a)
-                            :: attrs
-                    )
-                |> Maybe.withDefault attrs
 
 
 scrollDataDecoder : Int -> Decoder ScrollData
@@ -537,47 +507,6 @@ printTextfieldId id =
     id ++ "__textfield"
 
 
-printListId : String -> String
-printListId id =
-    id ++ "__element-list"
-
-
-printEntryId : String -> String -> String
-printEntryId id entryId =
-    id ++ "__element--" ++ entryId
-
-
-
--- MISC
-
-
-appendAttributes :
-    List (Html.Attribute Never)
-    -> List (Html.Attribute (Msg a))
-    -> List (Html.Attribute (Msg a))
-appendAttributes neverAttrs attrs =
-    neverAttrs
-        |> List.map (Attributes.map (\_ -> NoOp))
-        |> List.append attrs
-
-
-preventDefault : Decoder msg -> Decoder ( msg, Bool )
-preventDefault decoder =
-    decoder
-        |> Decode.map (\msg -> ( msg, True ))
-
-
-allowDefault : Decoder msg -> Decoder ( msg, Bool )
-allowDefault decoder =
-    decoder
-        |> Decode.map (\msg -> ( msg, False ))
-
-
-elementAt : Int -> List a -> Maybe a
-elementAt index =
-    List.drop index >> List.head
-
-
 
 ---- UPDATE
 
@@ -588,21 +517,19 @@ type Msg a
       -- TEXTFIELD
     | TextfieldClicked String
     | TextfieldChanged String String
-      --| TextfieldSpaceReleased
     | TextfieldSpacePressed String
-    | TextfieldArrowUpPressed String Int ScrollData
-    | TextfieldArrowDownPressed String Int ScrollData
+    | TextfieldArrowPressed (Maybe ScrollData) ScrollAction String String
     | TextfieldEnterPressed a
     | TextfieldEscapePressed
-    | TextfieldBlured (Maybe ScrollData)
+    | TextfieldBlured
       -- LIST
     | ListMouseDown String
     | ListMouseUp
     | ListScrolled String Float Float
       -- ENTRY
-    | EntryMouseEntered Int
+    | EntryMouseEntered String
     | EntryMouseLeft
-    | EntryClicked String Bool Int a
+    | EntryClicked String Bool String a
 
 
 {-| -}
@@ -626,7 +553,7 @@ update lifts selection ((State stuff) as state) msg =
                     | open = not stuff.open
                     , scrollDataCache = Nothing
                 }
-            , resetScrollTop id stuff.keyboardFocus stuff.scrollDataCache
+            , resetScrollTop NoOp id stuff.keyboardFocus stuff.scrollDataCache
             , Nothing
             )
 
@@ -648,31 +575,50 @@ update lifts selection ((State stuff) as state) msg =
                     | open = True
                     , scrollDataCache = Nothing
                 }
-            , resetScrollTop id stuff.keyboardFocus stuff.scrollDataCache
+            , resetScrollTop NoOp id stuff.keyboardFocus stuff.scrollDataCache
             , Nothing
             )
 
-        TextfieldArrowUpPressed id previousIndex scrollData ->
+        TextfieldArrowPressed maybeScrollData scrollAction id newFocus ->
             ( State
                 { stuff
-                    | keyboardFocus = Just previousIndex
+                    | keyboardFocus = Just newFocus
                     , open = True
-                    , ulScrollTop = scrollData.ulScrollTop
-                    , ulClientHeight = scrollData.ulClientHeight
                 }
-            , adjustScrollTop id scrollData
-            , Nothing
-            )
+                |> (\((State newStuff) as newState) ->
+                        case maybeScrollData of
+                            Nothing ->
+                                newState
 
-        TextfieldArrowDownPressed id nextIndex scrollData ->
-            ( State
-                { stuff
-                    | keyboardFocus = Just nextIndex
-                    , open = True
-                    , ulScrollTop = scrollData.ulScrollTop
-                    , ulClientHeight = scrollData.ulClientHeight
-                }
-            , adjustScrollTop id scrollData
+                            Just scrollData ->
+                                State
+                                    { newStuff
+                                        | ulScrollTop = scrollData.ulScrollTop
+                                        , ulClientHeight = scrollData.ulClientHeight
+                                        , scrollDataCache = Just scrollData
+                                    }
+                   )
+            , case scrollAction of
+                ScrollToTop ->
+                    Browser.setScrollTop (printListId id) 0
+                        |> Task.attempt (\_ -> NoOp)
+
+                ScrollToBottom ->
+                    Browser.setScrollBottom (printListId id) 0
+                        |> Task.attempt (\_ -> NoOp)
+
+                UseScrollData ->
+                    case maybeScrollData of
+                        Nothing ->
+                            stuff.scrollDataCache
+                                |> Maybe.map (centerScrollTop NoOp id)
+                                |> Maybe.withDefault
+                                    (Browser.scrollIntoView (printEntryId id newFocus)
+                                        |> Task.attempt (\_ -> NoOp)
+                                    )
+
+                        Just scrollData ->
+                            adjustScrollTop NoOp id scrollData
             , Nothing
             )
 
@@ -681,6 +627,7 @@ update lifts selection ((State stuff) as state) msg =
                 { stuff
                     | open = False
                     , keyboardFocus = Nothing
+                    , query = ""
                 }
             , Cmd.none
             , Just (lifts.entrySelected a)
@@ -695,7 +642,7 @@ update lifts selection ((State stuff) as state) msg =
             , Nothing
             )
 
-        TextfieldBlured scrollDataCache ->
+        TextfieldBlured ->
             ( State
                 { stuff
                     | open =
@@ -703,7 +650,6 @@ update lifts selection ((State stuff) as state) msg =
                             stuff.open
                         else
                             False
-                    , scrollDataCache = scrollDataCache
                 }
             , Cmd.none
             , Nothing
@@ -762,40 +708,6 @@ update lifts selection ((State stuff) as state) msg =
                 , focusTextfield id
                 , Just (lifts.entrySelected a)
                 )
-
-
-
--- CMDS
-
-
-resetScrollTop : String -> Maybe Int -> Maybe ScrollData -> Cmd (Msg a)
-resetScrollTop id keyboardFocus scrollDataCache =
-    case scrollDataCache of
-        Nothing ->
-            Browser.setScrollTop (printListId id) 0
-                |> Task.attempt (\_ -> NoOp)
-
-        Just scrollData ->
-            case keyboardFocus of
-                Nothing ->
-                    Browser.setScrollTop (printListId id) 0
-                        |> Task.attempt (\_ -> NoOp)
-
-                Just _ ->
-                    adjustScrollTop id scrollData
-
-
-adjustScrollTop : String -> ScrollData -> Cmd (Msg a)
-adjustScrollTop id { ulScrollTop, ulClientHeight, liOffsetTop, liOffsetHeight } =
-    if (liOffsetTop + liOffsetHeight) > (ulScrollTop + ulClientHeight) then
-        Browser.setScrollTop (printListId id)
-            (liOffsetTop + liOffsetHeight - ulClientHeight)
-            |> Task.attempt (\_ -> NoOp)
-    else if liOffsetTop < ulScrollTop then
-        Browser.setScrollTop (printListId id) liOffsetTop
-            |> Task.attempt (\_ -> NoOp)
-    else
-        Cmd.none
 
 
 focusTextfield : String -> Cmd (Msg a)

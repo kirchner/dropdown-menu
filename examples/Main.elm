@@ -20,7 +20,7 @@ module Main exposing (main)
 
 import Browser
 import DropdownMenu.Filterable
-import DropdownMenu.Optional
+import DropdownMenu.Simple
 import Html exposing (Html)
 import Html.Attributes as Attributes
 import Html.Lazy as Html
@@ -40,7 +40,7 @@ type alias Model =
     { selectedLicense : Maybe String
     , licenseMenu : DropdownMenu.Filterable.State String
     , selectedLocale : Maybe String
-    , localeMenu : DropdownMenu.Optional.State String
+    , localeMenu : DropdownMenu.Simple.State String
     , selectedNumber : Maybe String
     , numberMenu : DropdownMenu.Filterable.State String
     }
@@ -50,7 +50,7 @@ init _ =
     ( { selectedLicense = Nothing
       , licenseMenu = DropdownMenu.Filterable.closed
       , selectedLocale = Nothing
-      , localeMenu = DropdownMenu.Optional.closed
+      , localeMenu = DropdownMenu.Simple.closed
       , selectedNumber = Nothing
       , numberMenu = DropdownMenu.Filterable.closed
       }
@@ -60,7 +60,7 @@ init _ =
 
 type Msg
     = LicenseMenuMsg (DropdownMenu.Filterable.Msg String)
-    | LocaleMenuMsg (DropdownMenu.Optional.Msg String)
+    | LocaleMenuMsg (DropdownMenu.Simple.Msg String)
     | NumberMenuMsg (DropdownMenu.Filterable.Msg String)
 
 
@@ -100,7 +100,7 @@ update msg model =
         LocaleMenuMsg dropdownMenuMsg ->
             let
                 ( newLocaleMenu, cmd, outMsg ) =
-                    DropdownMenu.Optional.update EntrySelected
+                    DropdownMenu.Simple.update EntrySelected
                         model.localeMenu
                         dropdownMenuMsg
 
@@ -183,7 +183,7 @@ viewLocales selectedLocale localeMenu =
             [ Attributes.id "locale__label" ]
             [ Html.text "Locale" ]
         , selectedLocale
-            |> DropdownMenu.Optional.viewLazy (\_ -> 42)
+            |> DropdownMenu.Simple.viewLazy (\_ -> 42)
                 optionalConfig
                 { id = "locale"
                 , labelledBy = "locale__label"
@@ -241,9 +241,9 @@ filterableConfig =
         }
 
 
-optionalConfig : DropdownMenu.Optional.Config String
+optionalConfig : DropdownMenu.Simple.Config String
 optionalConfig =
-    DropdownMenu.Optional.config
+    DropdownMenu.Simple.config
         { matchesQuery =
             \query value ->
                 String.toLower value
