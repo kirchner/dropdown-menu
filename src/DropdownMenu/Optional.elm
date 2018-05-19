@@ -42,8 +42,7 @@ import Task
 {-| -}
 type State a
     = State
-        { entries : List a
-        , open : Bool
+        { open : Bool
         , preventBlur : Bool
 
         -- FOCUS
@@ -66,11 +65,10 @@ type alias ScrollData =
 
 
 {-| -}
-closed : List a -> State a
-closed entries =
+closed : State a
+closed =
     State
-        { entries = entries
-        , open = False
+        { open = False
         , preventBlur = False
         , keyboardFocus = Nothing
         , mouseFocus = Nothing
@@ -151,9 +149,10 @@ view :
         , labelledBy : String
         }
     -> State a
+    -> List a
     -> Maybe a
     -> Html (Msg a)
-view cfg ids ((State { entries }) as state) selection =
+view cfg ids state entries selection =
     viewHelp cfg ids state selection entries <|
         { spaceAboveFirst = 0
         , droppedAboveFirst = 0
@@ -178,15 +177,16 @@ viewLazy :
         , labelledBy : String
         }
     -> State a
+    -> List a
     -> Maybe a
     -> Html (Msg a)
-viewLazy entryHeight ((Config { entryId }) as cfg) ids ((State stuff) as state) selection =
+viewLazy entryHeight ((Config { entryId }) as cfg) ids ((State stuff) as state) entries selection =
     let
         maybeFocusIndex =
             stuff.keyboardFocus
                 |> Maybe.andThen
                     (\focus ->
-                        find entryId focus stuff.entries
+                        find entryId focus entries
                     )
                 |> Maybe.map Tuple.first
     in
@@ -194,8 +194,8 @@ viewLazy entryHeight ((Config { entryId }) as cfg) ids ((State stuff) as state) 
         stuff.ulScrollTop
         stuff.ulClientHeight
         maybeFocusIndex
-        stuff.entries
-        |> viewHelp cfg ids state selection stuff.entries
+        entries
+        |> viewHelp cfg ids state selection entries
 
 
 type alias RenderedEntries a =
@@ -669,8 +669,8 @@ arrowUpPressed :
         }
     -> Decoder msg
 arrowUpPressed id entryId jumpAtEnds allEntries focus msgs =
-    case focus of
-        Nothing ->
+    let
+        focusLastEntry =
             case last allEntries of
                 Nothing ->
                     Decode.fail "not handling that key here"
@@ -678,6 +678,10 @@ arrowUpPressed id entryId jumpAtEnds allEntries focus msgs =
                 Just lastEntry ->
                     Decode.succeed <|
                         msgs.arrowPressed ScrollToBottom id (entryId lastEntry)
+    in
+    case focus of
+        Nothing ->
+            focusLastEntry
 
         Just currentFocus ->
             case findPrevious entryId currentFocus allEntries of
@@ -693,7 +697,7 @@ arrowUpPressed id entryId jumpAtEnds allEntries focus msgs =
                     msgs.newFocused id newIndex (entryId newEntry)
 
                 Nothing ->
-                    Decode.fail "not handling that key here"
+                    focusLastEntry
 
 
 arrowDownPressed :
@@ -708,8 +712,8 @@ arrowDownPressed :
         }
     -> Decoder msg
 arrowDownPressed id entryId jumpAtEnds allEntries focus msgs =
-    case focus of
-        Nothing ->
+    let
+        focusFirstEntry =
             case List.head allEntries of
                 Nothing ->
                     Decode.fail "not handling that key here"
@@ -717,6 +721,10 @@ arrowDownPressed id entryId jumpAtEnds allEntries focus msgs =
                 Just firstEntry ->
                     Decode.succeed <|
                         msgs.arrowPressed ScrollToTop id (entryId firstEntry)
+    in
+    case focus of
+        Nothing ->
+            focusFirstEntry
 
         Just currentFocus ->
             case findNext entryId currentFocus allEntries of
@@ -732,7 +740,7 @@ arrowDownPressed id entryId jumpAtEnds allEntries focus msgs =
                     msgs.newFocused id newIndex (entryId newEntry)
 
                 Nothing ->
-                    Decode.fail "not handling that key here"
+                    focusFirstEntry
 
 
 viewEntry :
@@ -1082,7 +1090,10 @@ update entrySelected ((State stuff) as state) msg =
                     UseScrollData ->
                         stuff.scrollDataCache
                             |> Maybe.map (centerScrollTop id)
-                            |> Maybe.withDefault Cmd.none
+                            |> Maybe.withDefault
+                                (Browser.scrollIntoView (printEntryId id newFocus)
+                                    |> Task.attempt (\_ -> NoOp)
+                                )
                 ]
             , Nothing
             )
@@ -1127,7 +1138,10 @@ update entrySelected ((State stuff) as state) msg =
                         Nothing ->
                             stuff.scrollDataCache
                                 |> Maybe.map (centerScrollTop id)
-                                |> Maybe.withDefault Cmd.none
+                                |> Maybe.withDefault
+                                    (Browser.scrollIntoView (printEntryId id newFocus)
+                                        |> Task.attempt (\_ -> NoOp)
+                                    )
 
                         Just scrollData ->
                             adjustScrollTop id scrollData

@@ -50,7 +50,7 @@ init _ =
     ( { selectedLicense = Nothing
       , licenseMenu = DropdownMenu.Filterable.closed
       , selectedLocale = Nothing
-      , localeMenu = DropdownMenu.Optional.closed locales
+      , localeMenu = DropdownMenu.Optional.closed
       , selectedNumber = Nothing
       , numberMenu = DropdownMenu.Filterable.closed
       }
@@ -189,6 +189,7 @@ viewLocales selectedLocale localeMenu =
                 , labelledBy = "locale__label"
                 }
                 localeMenu
+                locales
             |> Html.map LocaleMenuMsg
         ]
 
