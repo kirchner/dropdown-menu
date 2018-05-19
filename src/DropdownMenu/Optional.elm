@@ -155,11 +155,17 @@ view :
     -> Html (Msg a)
 view cfg ids ((State { entries }) as state) selection =
     viewHelp cfg ids state selection entries <|
-        { entries = entries
-        , entriesCount = List.length entries
-        , dropped = 0
-        , heightAbove = 0
-        , heightBelow = 0
+        { spaceAboveFirst = 0
+        , droppedAboveFirst = 0
+        , spaceAboveSecond = 0
+        , droppedAboveSecond = 0
+        , spaceBelowFirst = 0
+        , droppedBelowFirst = 0
+        , spaceBelowSecond = 0
+        , droppedBelowSecond = 0
+        , entriesAbove = []
+        , visibleEntries = entries
+        , entriesBelow = []
         }
 
 
@@ -174,51 +180,151 @@ viewLazy :
     -> State a
     -> Maybe a
     -> Html (Msg a)
-viewLazy entryHeight cfg ids ((State stuff) as state) selection =
+viewLazy entryHeight ((Config { entryId }) as cfg) ids ((State stuff) as state) selection =
     let
-        { visibleEntries, dropped, heightAbove, heightBelow } =
-            List.foldl
-                (\entry data ->
-                    if data.heightAbove < stuff.ulScrollTop - 200 then
-                        { data
-                            | dropped = data.dropped + 1
-                            , heightAbove = data.heightAbove + entryHeight entry
-                        }
-                    else if
-                        (data.heightAbove + data.heightVisible)
-                            > (stuff.ulScrollTop + stuff.ulClientHeight + 200)
-                    then
-                        { data | heightBelow = data.heightBelow + entryHeight entry }
-                    else
-                        { data
-                            | visibleEntries = entry :: data.visibleEntries
-                            , heightVisible = data.heightVisible + entryHeight entry
-                        }
-                )
-                { visibleEntries = []
-                , dropped = 0
-                , heightAbove = 0
-                , heightVisible = 0
-                , heightBelow = 0
-                }
-                stuff.entries
+        maybeFocusIndex =
+            stuff.keyboardFocus
+                |> Maybe.andThen
+                    (\focus ->
+                        find entryId focus stuff.entries
+                    )
+                |> Maybe.map Tuple.first
     in
-    viewHelp cfg ids state selection stuff.entries <|
-        { entries = List.reverse visibleEntries
-        , entriesCount = List.length stuff.entries
-        , dropped = dropped
-        , heightAbove = heightAbove + min 0 (heightBelow - 200)
-        , heightBelow = heightBelow + min 0 (heightAbove - 200)
-        }
+    computeRenderedEntries entryHeight
+        stuff.ulScrollTop
+        stuff.ulClientHeight
+        maybeFocusIndex
+        stuff.entries
+        |> viewHelp cfg ids state selection stuff.entries
 
 
-type alias VisibleEntries a =
-    { entries : List a
-    , entriesCount : Int
-    , dropped : Int
-    , heightAbove : Float
-    , heightBelow : Float
+type alias RenderedEntries a =
+    { spaceAboveFirst : Float
+    , droppedAboveFirst : Int
+    , spaceAboveSecond : Float
+    , droppedAboveSecond : Int
+    , spaceBelowFirst : Float
+    , droppedBelowFirst : Int
+    , spaceBelowSecond : Float
+    , droppedBelowSecond : Int
+    , entriesAbove : List a
+    , visibleEntries : List a
+    , entriesBelow : List a
     }
+
+
+computeRenderedEntries : (a -> Float) -> Float -> Float -> Maybe Int -> List a -> RenderedEntries a
+computeRenderedEntries entryHeight ulScrollTop ulClientHeight maybeFocusIndex entries =
+    let
+        initialRenderedEntries =
+            { spaceAboveFirst = 0
+            , droppedAboveFirst = 0
+            , spaceAboveSecond = 0
+            , droppedAboveSecond = 0
+            , spaceBelowFirst = 0
+            , droppedBelowFirst = 0
+            , spaceBelowSecond = 0
+            , droppedBelowSecond = 0
+            , entriesAbove = []
+            , visibleEntries = []
+            , entriesBelow = []
+            }
+
+        withoutIndex entry currentHeight data =
+            let
+                height =
+                    entryHeight entry
+            in
+            if currentHeight < ulScrollTop - 200 then
+                -- entry is above the rendered range
+                { data
+                    | spaceAboveFirst = data.spaceAboveFirst + height
+                    , droppedAboveFirst = data.droppedAboveFirst + 1
+                }
+            else if currentHeight >= (ulScrollTop + ulClientHeight + 200) then
+                { data
+                    | spaceBelowFirst = data.spaceBelowFirst + height
+                    , droppedBelowFirst = data.droppedBelowFirst + 1
+                }
+            else
+                -- entry is within the rendered range
+                { data | visibleEntries = entry :: data.visibleEntries }
+
+        withIndex index currentIndex entry currentHeight data =
+            let
+                height =
+                    entryHeight entry
+            in
+            if currentHeight < ulScrollTop - 200 then
+                -- entry is above the rendered range
+                if currentIndex < index - 1 then
+                    -- entry is before focused entry
+                    { data
+                        | spaceAboveFirst = data.spaceAboveFirst + height
+                        , droppedAboveFirst = data.droppedAboveFirst + 1
+                    }
+                else if currentIndex > index + 1 then
+                    -- entry is after focused entry
+                    { data
+                        | spaceAboveSecond = data.spaceAboveSecond + height
+                        , droppedAboveSecond = data.droppedAboveSecond + 1
+                    }
+                else
+                    -- entry is focused or next to focused entry
+                    { data | entriesAbove = entry :: data.entriesAbove }
+            else if currentHeight > (ulScrollTop + ulClientHeight + 200) then
+                -- entry is below the rendered range
+                if currentIndex < index - 1 then
+                    -- entry is before focused entry
+                    { data
+                        | spaceBelowFirst = data.spaceBelowFirst + height
+                        , droppedBelowFirst = data.droppedBelowFirst + 1
+                    }
+                else if currentIndex > index + 1 then
+                    -- entry is after focused entry
+                    { data
+                        | spaceBelowSecond = data.spaceBelowSecond + height
+                        , droppedBelowSecond = data.droppedBelowSecond + 1
+                    }
+                else
+                    -- entry is focused or next to focused entry
+                    { data | entriesBelow = entry :: data.entriesBelow }
+            else
+                -- entry is within the rendered range
+                { data | visibleEntries = entry :: data.visibleEntries }
+
+        reverseLists renderedEntries =
+            { renderedEntries
+                | entriesAbove = List.reverse renderedEntries.entriesAbove
+                , visibleEntries = List.reverse renderedEntries.visibleEntries
+                , entriesBelow = List.reverse renderedEntries.entriesBelow
+            }
+    in
+    reverseLists <|
+        case maybeFocusIndex of
+            Nothing ->
+                entries
+                    |> List.foldl
+                        (\entry ( currentHeight, data ) ->
+                            ( currentHeight + entryHeight entry
+                            , withoutIndex entry currentHeight data
+                            )
+                        )
+                        ( 0, initialRenderedEntries )
+                    |> Tuple.second
+
+            Just index ->
+                entries
+                    |> List.foldl
+                        (\entry ( ( currentIndex, currentHeight ), data ) ->
+                            ( ( currentIndex + 1
+                              , currentHeight + entryHeight entry
+                              )
+                            , withIndex index currentIndex entry currentHeight data
+                            )
+                        )
+                        ( ( 0, 0 ), initialRenderedEntries )
+                    |> Tuple.second
 
 
 viewHelp :
@@ -230,15 +336,15 @@ viewHelp :
     -> State a
     -> Maybe a
     -> List a
-    -> VisibleEntries a
+    -> RenderedEntries a
     -> Html (Msg a)
-viewHelp (Config cfg) { id, labelledBy } (State stuff) selection allEntries visibleEntries =
+viewHelp (Config cfg) { id, labelledBy } (State stuff) selection allEntries renderedEntries =
     let
-        { entries, entriesCount, dropped, heightAbove, heightBelow } =
-            visibleEntries
-
         displayed =
-            List.length entries
+            List.length renderedEntries.visibleEntries
+
+        dropped =
+            renderedEntries.droppedAboveFirst + renderedEntries.droppedAboveSecond
 
         { attributes, children } =
             cfg.button
@@ -284,16 +390,19 @@ viewHelp (Config cfg) { id, labelledBy } (State stuff) selection allEntries visi
                             cfg.entryId
                             stuff.keyboardFocus
                             allEntries
-                            dropped
+                            renderedEntries.droppedAboveFirst
+                            renderedEntries.droppedAboveSecond
+                            renderedEntries.droppedBelowFirst
                             displayed
                         )
                 )
              , Events.on "blur" <|
                 Decode.succeed ListBlured
              , Events.on "scroll" <|
-                Decode.map2 ListScrolled
+                Decode.map3 ListScrolled
                     (Decode.at [ "target", "scrollTop" ] Decode.float)
                     (Decode.at [ "target", "clientHeight" ] Decode.float)
+                    (Decode.at [ "target", "scrollHeight" ] Decode.float)
              ]
                 |> setDisplay stuff.open
                 |> setAriaActivedescendant
@@ -304,32 +413,76 @@ viewHelp (Config cfg) { id, labelledBy } (State stuff) selection allEntries visi
                 |> appendAttributes cfg.ul
             )
             (List.concat
-                [ [ Html.li
-                        [ Attributes.style "height" (String.fromFloat heightAbove ++ "px") ]
-                        []
-                  ]
-                , List.indexedMap
-                    (\index a ->
-                        let
-                            actualIndex =
-                                index + dropped
-                        in
-                        viewEntry cfg
-                            id
-                            (selection == Just a)
-                            (stuff.keyboardFocus == Just (cfg.entryId a))
-                            (stuff.mouseFocus == Just (cfg.entryId a))
-                            actualIndex
-                            a
-                    )
-                    entries
-                , [ Html.li
-                        [ Attributes.style "height" (String.fromFloat heightBelow ++ "px") ]
-                        []
-                  ]
+                [ spacer renderedEntries.spaceAboveFirst
+                , renderedEntries.entriesAbove
+                    |> List.indexedMap
+                        (\index a ->
+                            let
+                                actualIndex =
+                                    index + renderedEntries.droppedAboveFirst
+                            in
+                            viewEntry cfg
+                                id
+                                (selection == Just a)
+                                (stuff.keyboardFocus == Just (cfg.entryId a))
+                                (stuff.mouseFocus == Just (cfg.entryId a))
+                                actualIndex
+                                a
+                        )
+                , spacer renderedEntries.spaceAboveSecond
+                , renderedEntries.visibleEntries
+                    |> List.indexedMap
+                        (\index a ->
+                            let
+                                actualIndex =
+                                    index
+                                        + renderedEntries.droppedAboveFirst
+                                        + renderedEntries.droppedAboveSecond
+                            in
+                            viewEntry cfg
+                                id
+                                (selection == Just a)
+                                (stuff.keyboardFocus == Just (cfg.entryId a))
+                                (stuff.mouseFocus == Just (cfg.entryId a))
+                                actualIndex
+                                a
+                        )
+                , spacer renderedEntries.spaceBelowFirst
+                , renderedEntries.entriesBelow
+                    |> List.indexedMap
+                        (\index a ->
+                            let
+                                actualIndex =
+                                    index
+                                        + renderedEntries.droppedAboveFirst
+                                        + renderedEntries.droppedAboveSecond
+                                        + renderedEntries.droppedBelowFirst
+                                        + displayed
+                            in
+                            viewEntry cfg
+                                id
+                                (selection == Just a)
+                                (stuff.keyboardFocus == Just (cfg.entryId a))
+                                (stuff.mouseFocus == Just (cfg.entryId a))
+                                actualIndex
+                                a
+                        )
+                , spacer renderedEntries.spaceBelowSecond
                 ]
             )
         ]
+
+
+spacer : Float -> List (Html msg)
+spacer height =
+    [ Html.li
+        (if height == 0 then
+            [ Attributes.style "display" "none" ]
+         else
+            [ Attributes.style "height" (String.fromFloat height ++ "px") ]
+        )
+        []
+    ]
 
 
 buttonKeyDown :
@@ -343,26 +496,20 @@ buttonKeyDown :
 buttonKeyDown id entryId jumpAtEnds keyboardFocus allEntries code =
     case code of
         "ArrowUp" ->
-            { arrowPressed = ButtonArrowPressed Up
+            { arrowPressed = ButtonArrowPressed
             , newFocused =
                 \menuId _ newEntryId ->
                     Decode.succeed <|
-                        ButtonArrowPressed Up
-                            UseScrollData
-                            menuId
-                            newEntryId
+                        ButtonArrowPressed UseScrollData menuId newEntryId
             }
                 |> arrowUpPressed id entryId jumpAtEnds allEntries keyboardFocus
 
         "ArrowDown" ->
-            { arrowPressed = ButtonArrowPressed Down
+            { arrowPressed = ButtonArrowPressed
             , newFocused =
                 \menuId _ newEntryId ->
                     Decode.succeed <|
-                        ButtonArrowPressed Down
-                            UseScrollData
-                            menuId
-                            newEntryId
+                        ButtonArrowPressed UseScrollData menuId newEntryId
             }
                 |> arrowDownPressed id entryId jumpAtEnds allEntries keyboardFocus
 
@@ -378,56 +525,108 @@ listKeydown :
     -> List a
     -> Int
     -> Int
+    -> Int
+    -> Int
     -> String
     -> Decoder ( Msg a, Bool )
-listKeydown id jumpAtEnds entryId keyboardFocus allEntries dropped displayed code =
+listKeydown id jumpAtEnds entryId keyboardFocus allEntries droppedAboveFirst droppedAboveSecond droppedBelowFirst displayed code =
     case code of
         "ArrowUp" ->
-            { arrowPressed = ListArrowPressed Up Nothing
+            { arrowPressed = ListArrowPressed Nothing
             , newFocused =
                 \menuId newIndex newEntryId ->
                     let
                         domIndex =
-                            newIndex + 1 - dropped
+                            if newIndex - droppedAboveFirst < 0 then
+                                -- newEntry is not rendered, should never
+                                -- happen
+                                0
+                            else if newIndex - droppedAboveFirst < 3 then
+                                -- newEntry is above visible entries
+                                newIndex - droppedAboveFirst + 1
+                            else if
+                                newIndex
+                                    - droppedAboveFirst
+                                    - droppedAboveSecond
+                                    < displayed
+                            then
+                                -- newEntry is visible
+                                newIndex - droppedAboveFirst - droppedAboveSecond + 2
+                            else if
+                                newIndex
+                                    - droppedAboveFirst
+                                    - droppedAboveSecond
+                                    - droppedBelowFirst
+                                    - displayed
+                                    < 3
+                            then
+                                -- newEntry is below visible entries
+                                newIndex
+                                    - droppedAboveFirst
+                                    - droppedAboveSecond
+                                    - droppedBelowFirst
+                                    + 3
+                            else
+                                0
                     in
-                    if domIndex < 1 || domIndex > displayed then
-                        Decode.succeed <|
-                            ListArrowPressed Up Nothing UseScrollData menuId newEntryId
-                    else
-                        scrollDataDecoder (newIndex + 1 - dropped)
-                            |> Decode.map
-                                (\scrollData ->
-                                    ListArrowPressed Up
-                                        (Just scrollData)
-                                        UseScrollData
-                                        menuId
-                                        newEntryId
-                                )
+                    scrollDataDecoder domIndex
+                        |> Decode.map
+                            (\scrollData ->
+                                ListArrowPressed (Just scrollData)
+                                    UseScrollData
+                                    menuId
+                                    newEntryId
+                            )
             }
                 |> arrowUpPressed id entryId jumpAtEnds allEntries keyboardFocus
                 |> preventDefault
 
         "ArrowDown" ->
-            { arrowPressed = ListArrowPressed Down Nothing
+            { arrowPressed = ListArrowPressed Nothing
             , newFocused =
                 \menuId newIndex newEntryId ->
                     let
                         domIndex =
-                            newIndex + 1 - dropped
+                            if newIndex - droppedAboveFirst < 0 then
+                                -- newEntry is not rendered, should never
+                                -- happen
+                                0
+                            else if newIndex - droppedAboveFirst < 3 then
+                                -- newEntry is above visible entries
+                                newIndex - droppedAboveFirst + 1
+                            else if
+                                newIndex
+                                    - droppedAboveFirst
+                                    - droppedAboveSecond
+                                    < displayed
+                            then
+                                -- newEntry is visible
+                                newIndex - droppedAboveFirst - droppedAboveSecond + 2
+                            else if
+                                newIndex
+                                    - droppedAboveFirst
+                                    - droppedAboveSecond
+                                    - droppedBelowFirst
+                                    - displayed
+                                    < 3
+                            then
+                                -- newEntry is below visible entries
+                                newIndex
+                                    - droppedAboveFirst
+                                    - droppedAboveSecond
+                                    - droppedBelowFirst
+                                    + 3
+                            else
+                                0
                     in
-                    if domIndex < 1 || domIndex > displayed then
-                        Decode.succeed <|
-                            ListArrowPressed Down Nothing UseScrollData menuId newEntryId
-                    else
-                        scrollDataDecoder (newIndex + 1 - dropped)
-                            |> Decode.map
-                                (\scrollData ->
-                                    ListArrowPressed Down
-                                        (Just scrollData)
-                                        UseScrollData
-                                        menuId
-                                        newEntryId
-                                )
+                    scrollDataDecoder domIndex
+                        |> Decode.map
+                            (\scrollData ->
+                                ListArrowPressed (Just scrollData)
+                                    UseScrollData
+                                    menuId
+                                    newEntryId
+                            )
             }
                 |> arrowDownPressed id entryId jumpAtEnds allEntries keyboardFocus
                 |> preventDefault
@@ -478,17 +677,17 @@ arrowUpPressed id entryId jumpAtEnds allEntries focus msgs =
 
                 Just lastEntry ->
                     Decode.succeed <|
-                        msgs.arrowPressed ScrollToEnd id (entryId lastEntry)
+                        msgs.arrowPressed ScrollToBottom id (entryId lastEntry)
 
         Just currentFocus ->
             case findPrevious entryId currentFocus allEntries of
                 Just (Last lastEntry) ->
                     if jumpAtEnds then
                         Decode.succeed <|
-                            msgs.arrowPressed ScrollToEnd id (entryId lastEntry)
+                            msgs.arrowPressed ScrollToBottom id (entryId lastEntry)
                     else
                         Decode.succeed <|
-                            msgs.arrowPressed UseScrollData id currentFocus
+                            msgs.arrowPressed ScrollToTop id currentFocus
 
                 Just (Previous newIndex newEntry) ->
                     msgs.newFocused id newIndex (entryId newEntry)
@@ -517,17 +716,17 @@ arrowDownPressed id entryId jumpAtEnds allEntries focus msgs =
 
                 Just firstEntry ->
                     Decode.succeed <|
-                        msgs.arrowPressed ScrollToEnd id (entryId firstEntry)
+                        msgs.arrowPressed ScrollToTop id (entryId firstEntry)
 
         Just currentFocus ->
             case findNext entryId currentFocus allEntries of
                 Just (First firstEntry) ->
                     if jumpAtEnds then
                         Decode.succeed <|
-                            msgs.arrowPressed ScrollToEnd id (entryId firstEntry)
+                            msgs.arrowPressed ScrollToTop id (entryId firstEntry)
                     else
                         Decode.succeed <|
-                            msgs.arrowPressed UseScrollData id currentFocus
+                            msgs.arrowPressed ScrollToBottom id currentFocus
 
                 Just (Next newIndex newEntry) ->
                     msgs.newFocused id newIndex (entryId newEntry)
@@ -802,15 +1001,15 @@ type Msg a
     = NoOp
       -- BUTTON
     | ButtonClicked String
-    | ButtonArrowPressed Direction ScrollAction String String
+    | ButtonArrowPressed ScrollAction String String
       -- LIST
     | ListMouseDown
     | ListMouseUp
-    | ListArrowPressed Direction (Maybe ScrollData) ScrollAction String String
+    | ListArrowPressed (Maybe ScrollData) ScrollAction String String
     | ListEnterPressed String a
     | ListEscapePressed String
     | ListBlured
-    | ListScrolled Float Float
+    | ListScrolled Float Float Float
       -- ENTRY
     | EntryMouseEntered String
     | EntryMouseLeft
@@ -823,7 +1022,8 @@ type Direction
 
 
 type ScrollAction
-    = ScrollToEnd
+    = ScrollToTop
+    | ScrollToBottom
     | UseScrollData
 
 
@@ -848,7 +1048,7 @@ update entrySelected ((State stuff) as state) msg =
             , Nothing
             )
 
-        ButtonArrowPressed direction scrollAction id newFocus ->
+        ButtonArrowPressed scrollAction id newFocus ->
             ( State
                 { stuff
                     | keyboardFocus = Just newFocus
@@ -859,13 +1059,11 @@ update entrySelected ((State stuff) as state) msg =
                         -- `ulScrollTop` manually to `0` so the list is
                         -- displayed when using lazyView.
                         case scrollAction of
-                            ScrollToEnd ->
-                                case direction of
-                                    Up ->
-                                        stuff.ulScrollTop
+                            ScrollToTop ->
+                                0
 
-                                    Down ->
-                                        0
+                            ScrollToBottom ->
+                                stuff.ulScrollTop
 
                             UseScrollData ->
                                 stuff.ulScrollTop
@@ -873,15 +1071,13 @@ update entrySelected ((State stuff) as state) msg =
             , Cmd.batch
                 [ focusList id
                 , case scrollAction of
-                    ScrollToEnd ->
-                        case direction of
-                            Up ->
-                                Browser.setScrollBottom (printListId id) 0
-                                    |> Task.attempt (\_ -> NoOp)
+                    ScrollToTop ->
+                        Browser.setScrollTop (printListId id) 0
+                            |> Task.attempt (\_ -> NoOp)
 
-                            Down ->
-                                Browser.setScrollTop (printListId id) 0
-                                    |> Task.attempt (\_ -> NoOp)
+                    ScrollToBottom ->
+                        Browser.setScrollBottom (printListId id) 0
+                            |> Task.attempt (\_ -> NoOp)
 
                     UseScrollData ->
                         stuff.scrollDataCache
@@ -898,7 +1094,7 @@ update entrySelected ((State stuff) as state) msg =
         ListMouseUp ->
             ( State { stuff | preventBlur = False }, Cmd.none, Nothing )
 
-        ListArrowPressed direction maybeScrollData scrollAction id newFocus ->
+        ListArrowPressed maybeScrollData scrollAction id newFocus ->
             ( State
                 { stuff
                     | keyboardFocus = Just newFocus
@@ -918,15 +1114,13 @@ update entrySelected ((State stuff) as state) msg =
                                     }
                    )
             , case scrollAction of
-                ScrollToEnd ->
-                    case direction of
-                        Up ->
-                            Browser.setScrollBottom (printListId id) 0
-                                |> Task.attempt (\_ -> NoOp)
+                ScrollToTop ->
+                    Browser.setScrollTop (printListId id) 0
+                        |> Task.attempt (\_ -> NoOp)
 
-                        Down ->
-                            Browser.setScrollTop (printListId id) 0
-                                |> Task.attempt (\_ -> NoOp)
+                ScrollToBottom ->
+                    Browser.setScrollBottom (printListId id) 0
+                        |> Task.attempt (\_ -> NoOp)
 
                 UseScrollData ->
                     case maybeScrollData of
@@ -965,7 +1159,7 @@ update entrySelected ((State stuff) as state) msg =
             , Nothing
             )
 
-        ListScrolled ulScrollTop ulClientHeight ->
+        ListScrolled ulScrollTop ulClientHeight ulScrollHeight ->
             ( State
                 { stuff
                     | ulScrollTop = ulScrollTop
@@ -1023,14 +1217,20 @@ resetScrollTop id keyboardFocus scrollDataCache =
 
 
 adjustScrollTop : String -> ScrollData -> Cmd (Msg a)
-adjustScrollTop id { ulScrollTop, ulClientHeight, liOffsetTop, liOffsetHeight } =
+adjustScrollTop id ({ ulScrollTop, ulClientHeight, liOffsetTop, liOffsetHeight } as scrollData) =
     if (liOffsetTop + liOffsetHeight) > (ulScrollTop + ulClientHeight) then
-        Browser.setScrollTop (printListId id)
-            (liOffsetTop + liOffsetHeight - ulClientHeight)
-            |> Task.attempt (\_ -> NoOp)
+        if liOffsetTop <= ulScrollTop + ulClientHeight then
+            Browser.setScrollTop (printListId id)
+                (liOffsetTop + liOffsetHeight - ulClientHeight)
+                |> Task.attempt (\_ -> NoOp)
+        else
+            centerScrollTop id scrollData
     else if liOffsetTop < ulScrollTop then
-        Browser.setScrollTop (printListId id) liOffsetTop
-            |> Task.attempt (\_ -> NoOp)
+        if liOffsetTop + liOffsetHeight >= ulScrollTop then
+            Browser.setScrollTop (printListId id) liOffsetTop
+                |> Task.attempt (\_ -> NoOp)
+        else
+            centerScrollTop id scrollData
     else
         Cmd.none
 

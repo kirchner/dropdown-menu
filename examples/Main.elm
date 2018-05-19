@@ -985,7 +985,6 @@ locales =
     , "Northern Sami, Finland"
     , "Northern Sami, Norway"
     , "Norwegian Bokmål"
-    , "Norwegian Bokmål"
     , "Norwegian Bokmål, Norway"
     , "Norwegian Nynorsk"
     , "Norwegian Nynorsk, Norway"
