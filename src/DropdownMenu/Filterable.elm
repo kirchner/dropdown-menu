@@ -658,6 +658,7 @@ update lifts selection ((State stuff) as state) msg =
             ( State
                 { stuff
                     | open = False
+                    , query = ""
                 }
             , Cmd.none
             , Nothing
@@ -671,6 +672,7 @@ update lifts selection ((State stuff) as state) msg =
                             stuff.open
                         else
                             False
+                    , query = ""
                 }
             , Cmd.none
             , Nothing
