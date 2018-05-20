@@ -5,6 +5,7 @@ module DropdownMenu.Simple
         , State
         , closed
         , config
+        , subscriptions
         , update
         , updateOptional
         , updateRequired
@@ -52,6 +53,8 @@ import Internal.Shared
         , find
         , findNext
         , findPrevious
+        , findWithQuery
+        , findWithQueryFromTop
         , last
         , preventDefault
         , printEntryId
@@ -65,6 +68,7 @@ import Internal.Shared
 import Json.Decode as Decode exposing (Decoder)
 import Json.Decode.Pipeline as Decode
 import Task
+import Time
 
 
 {-| -}
@@ -72,6 +76,7 @@ type State a
     = State
         { open : Bool
         , preventBlur : Bool
+        , query : Query
 
         -- FOCUS
         , keyboardFocus : Maybe String
@@ -84,12 +89,18 @@ type State a
         }
 
 
+type Query
+    = NoQuery
+    | Query Time.Posix String
+
+
 {-| -}
 closed : State a
 closed =
     State
         { open = False
         , preventBlur = False
+        , query = NoQuery
         , keyboardFocus = Nothing
         , mouseFocus = Nothing
         , scrollDataCache = Nothing
@@ -290,6 +301,17 @@ viewHelp (Config cfg) { id, labelledBy } (State stuff) selection allEntries rend
                 Decode.map2 ListScrolled
                     (Decode.at [ "target", "scrollTop" ] Decode.float)
                     (Decode.at [ "target", "clientHeight" ] Decode.float)
+             , Events.on "keypress"
+                (Decode.field "key" Decode.string
+                    |> Decode.andThen
+                        (\code ->
+                            if String.length code == 1 then
+                                Decode.succeed <|
+                                    ListKeyPressed id cfg.entryId allEntries code
+                            else
+                                Decode.fail "not handling that key here"
+                        )
+                )
              ]
                 |> setDisplay stuff.open
                 |> setAriaActivedescendant
@@ -563,6 +585,10 @@ type Msg a
     | EntryMouseEntered String
     | EntryMouseLeft
     | EntryClicked String Bool String a
+      -- QUERY
+    | ListKeyPressed String (a -> String) (List a) String
+    | CurrentTimeReceived String (a -> String) (List a) String Time.Posix
+    | Tick Time.Posix
 
 
 {-| -}
@@ -737,6 +763,72 @@ update entrySelected ((State stuff) as state) msg =
                 Cmd.none
             , Just (entrySelected a)
             )
+
+        -- QUERY
+        ListKeyPressed id entryId entries code ->
+            ( state
+            , Time.now
+                |> Task.perform (CurrentTimeReceived id entryId entries code)
+            , Nothing
+            )
+
+        CurrentTimeReceived id entryId entries code currentTime ->
+            let
+                ( newQuery, queryText ) =
+                    case stuff.query of
+                        NoQuery ->
+                            ( Query currentTime code, code )
+
+                        Query _ query ->
+                            ( Query currentTime (query ++ code), query ++ code )
+
+                newKeyboardFocus =
+                    case stuff.keyboardFocus of
+                        Nothing ->
+                            findWithQueryFromTop entryId queryText entries
+
+                        Just focus ->
+                            findWithQuery entryId focus queryText entries
+            in
+            ( State
+                { stuff
+                    | query = newQuery
+                    , keyboardFocus = newKeyboardFocus
+                }
+            , newKeyboardFocus
+                |> Maybe.map
+                    (\newFocus ->
+                        Browser.scrollIntoView (printEntryId id newFocus)
+                            |> Task.attempt (\_ -> NoOp)
+                    )
+                |> Maybe.withDefault Cmd.none
+            , Nothing
+            )
+
+        Tick currentTime ->
+            ( case stuff.query of
+                NoQuery ->
+                    state
+
+                Query time _ ->
+                    if Time.posixToMillis currentTime - Time.posixToMillis time > 1000 then
+                        State
+                            { stuff | query = NoQuery }
+                    else
+                        state
+            , Cmd.none
+            , Nothing
+            )
+
+
+subscriptions : State a -> Sub (Msg a)
+subscriptions (State stuff) =
+    case stuff.query of
+        NoQuery ->
+            Sub.none
+
+        Query _ _ ->
+            Time.every 300 Tick
 
 
 type OutMsg a

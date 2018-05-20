@@ -160,8 +160,12 @@ update msg model =
             )
 
 
-subscriptions _ =
-    Sub.none
+subscriptions model =
+    Sub.batch
+        [ model.localeMenu
+            |> DropdownMenu.Simple.subscriptions
+            |> Sub.map LocaleMenuMsg
+        ]
 
 
 view model =

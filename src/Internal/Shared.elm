@@ -14,6 +14,8 @@ module Internal.Shared
         , find
         , findNext
         , findPrevious
+        , findWithQuery
+        , findWithQueryFromTop
         , last
         , preventDefault
         , printEntryId
@@ -387,6 +389,40 @@ findHelp index entryId selectedId entries =
                 Just ( index, entry )
             else
                 findHelp (index + 1) entryId selectedId rest
+
+
+findWithQueryFromTop : (a -> String) -> String -> List a -> Maybe String
+findWithQueryFromTop entryId query entries =
+    proceed entryId Nothing query entries
+
+
+findWithQuery : (a -> String) -> String -> String -> List a -> Maybe String
+findWithQuery entryId focus query entries =
+    case entries of
+        [] ->
+            Nothing
+
+        entry :: rest ->
+            if entryId entry == focus then
+                proceed entryId (Just (entryId entry)) query rest
+            else
+                findWithQuery entryId focus query rest
+
+
+proceed : (a -> String) -> Maybe String -> String -> List a -> Maybe String
+proceed entryId entry query entries =
+    case entries of
+        [] ->
+            entry
+
+        next :: rest ->
+            if
+                String.toLower (entryId next)
+                    |> String.startsWith (String.toLower query)
+            then
+                Just (entryId next)
+            else
+                proceed entryId entry query rest
 
 
 type Previous a
