@@ -41,6 +41,8 @@ type alias Model =
     , licenseMenu : DropdownMenu.Filterable.State String
     , selectedLocale : Maybe String
     , localeMenu : DropdownMenu.Simple.State String
+    , selectedLocaleRequired : String
+    , localeRequiredMenu : DropdownMenu.Simple.State String
     , selectedNumber : Maybe String
     , numberMenu : DropdownMenu.Filterable.State String
     }
@@ -51,6 +53,11 @@ init _ =
       , licenseMenu = DropdownMenu.Filterable.closed
       , selectedLocale = Nothing
       , localeMenu = DropdownMenu.Simple.closed
+      , selectedLocaleRequired =
+            locales
+                |> List.head
+                |> Maybe.withDefault ""
+      , localeRequiredMenu = DropdownMenu.Simple.closed
       , selectedNumber = Nothing
       , numberMenu = DropdownMenu.Filterable.closed
       }
@@ -61,6 +68,7 @@ init _ =
 type Msg
     = LicenseMenuMsg (DropdownMenu.Filterable.Msg String)
     | LocaleMenuMsg (DropdownMenu.Simple.Msg String)
+    | LocaleRequiredMenuMsg (DropdownMenu.Simple.Msg String)
     | NumberMenuMsg (DropdownMenu.Filterable.Msg String)
 
 
@@ -99,23 +107,30 @@ update msg model =
 
         LocaleMenuMsg dropdownMenuMsg ->
             let
-                ( newLocaleMenu, cmd, outMsg ) =
-                    DropdownMenu.Simple.update EntrySelected
+                ( newLocaleMenu, newSelection, cmd ) =
+                    DropdownMenu.Simple.updateOptional dropdownMenuMsg
+                        model.selectedLocale
                         model.localeMenu
-                        dropdownMenuMsg
-
-                newModel =
-                    { model
-                        | localeMenu = newLocaleMenu
-                    }
             in
-            ( case outMsg of
-                Just (EntrySelected newSelection) ->
-                    { newModel | selectedLocale = Just newSelection }
-
-                _ ->
-                    newModel
+            ( { model
+                | selectedLocale = newSelection
+                , localeMenu = newLocaleMenu
+              }
             , Cmd.map LocaleMenuMsg cmd
+            )
+
+        LocaleRequiredMenuMsg dropdownMenuMsg ->
+            let
+                ( newLocaleMenu, newSelection, cmd ) =
+                    DropdownMenu.Simple.updateRequired dropdownMenuMsg
+                        model.selectedLocaleRequired
+                        model.localeRequiredMenu
+            in
+            ( { model
+                | selectedLocaleRequired = newSelection
+                , localeRequiredMenu = newLocaleMenu
+              }
+            , Cmd.map LocaleRequiredMenuMsg cmd
             )
 
         NumberMenuMsg dropdownMenuMsg ->
@@ -156,6 +171,7 @@ view model =
         ]
         [ Html.lazy2 viewLicenses model.selectedLicense model.licenseMenu
         , Html.lazy2 viewLocales model.selectedLocale model.localeMenu
+        , Html.lazy2 viewLocalesRequired model.selectedLocaleRequired model.localeRequiredMenu
         , Html.lazy2 viewNumbers model.selectedNumber model.numberMenu
         ]
 
@@ -191,6 +207,23 @@ viewLocales selectedLocale localeMenu =
                 localeMenu
                 locales
             |> Html.map LocaleMenuMsg
+        ]
+
+
+viewLocalesRequired selectedLocale localeMenu =
+    Html.div []
+        [ Html.span
+            [ Attributes.id "locale__label" ]
+            [ Html.text "Locale" ]
+        , Just selectedLocale
+            |> DropdownMenu.Simple.viewLazy (\_ -> 42)
+                optionalConfig
+                { id = "locale-required"
+                , labelledBy = "locale-required__label"
+                }
+                localeMenu
+                locales
+            |> Html.map LocaleRequiredMenuMsg
         ]
 
 

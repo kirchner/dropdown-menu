@@ -6,6 +6,8 @@ module DropdownMenu.Simple
         , closed
         , config
         , update
+        , updateOptional
+        , updateRequired
         , view
         , viewLazy
         )
@@ -735,6 +737,40 @@ update entrySelected ((State stuff) as state) msg =
                 Cmd.none
             , Just (entrySelected a)
             )
+
+
+type OutMsg a
+    = EntrySelected a
+
+
+{-| -}
+updateOptional : Msg a -> Maybe a -> State a -> ( State a, Maybe a, Cmd (Msg a) )
+updateOptional msg selection state =
+    let
+        ( newState, cmd, maybeOutMsg ) =
+            update EntrySelected state msg
+    in
+    case maybeOutMsg of
+        Nothing ->
+            ( newState, selection, cmd )
+
+        Just (EntrySelected a) ->
+            ( newState, Just a, cmd )
+
+
+{-| -}
+updateRequired : Msg a -> a -> State a -> ( State a, a, Cmd (Msg a) )
+updateRequired msg selection state =
+    let
+        ( newState, cmd, maybeOutMsg ) =
+            update EntrySelected state msg
+    in
+    case maybeOutMsg of
+        Nothing ->
+            ( newState, selection, cmd )
+
+        Just (EntrySelected a) ->
+            ( newState, a, cmd )
 
 
 
