@@ -288,6 +288,25 @@ viewHelp (Config cfg) ids (State stuff) selection allEntries renderedEntries =
                 )
              , Events.on "blur" <|
                 Decode.succeed TextfieldBlured
+             , Events.preventDefaultOn "keypress"
+                (Decode.field "key" Decode.string
+                    |> Decode.andThen
+                        (\code ->
+                            case code of
+                                "Home" ->
+                                    ListHomePressed ids.id cfg.entryId allEntries
+                                        |> Decode.succeed
+                                        |> preventDefault
+
+                                "End" ->
+                                    ListEndPressed ids.id cfg.entryId allEntries
+                                        |> Decode.succeed
+                                        |> preventDefault
+
+                                _ ->
+                                    Decode.fail "not handling that key here"
+                        )
+                )
              ]
                 |> setAriaExpanded stuff.open
                 |> appendAttributes NoOp
@@ -526,6 +545,8 @@ type Msg a
     | ListMouseDown String
     | ListMouseUp
     | ListScrolled String Float Float
+    | ListHomePressed String (a -> String) (List a)
+    | ListEndPressed String (a -> String) (List a)
       -- ENTRY
     | EntryMouseEntered String
     | EntryMouseLeft
@@ -672,6 +693,33 @@ update lifts selection ((State stuff) as state) msg =
                     , ulClientHeight = ulClientHeight
                 }
             , focusTextfield id
+            , Nothing
+            )
+
+        ListHomePressed id entryId entries ->
+            ( State
+                { stuff
+                    | keyboardFocus =
+                        entries
+                            |> List.head
+                            |> Maybe.map entryId
+                }
+            , Browser.setScrollTop (printListId id) 0
+                |> Task.attempt (\_ -> NoOp)
+            , Nothing
+            )
+
+        ListEndPressed id entryId entries ->
+            ( State
+                { stuff
+                    | keyboardFocus =
+                        entries
+                            |> List.reverse
+                            |> List.head
+                            |> Maybe.map entryId
+                }
+            , Browser.setScrollBottom (printListId id) 0
+                |> Task.attempt (\_ -> NoOp)
             , Nothing
             )
 
