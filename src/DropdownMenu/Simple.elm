@@ -1,10 +1,11 @@
 module DropdownMenu.Simple
     exposing
-        ( Config
+        ( Bevaviour
+        , Config
         , Msg
         , State
+        , View
         , closed
-        , config
         , subscriptions
         , update
         , updateOptional
@@ -120,20 +121,26 @@ closed =
 
 
 {-| -}
-type Config a
-    = Config (ConfigData a)
+type alias Config a =
+    { uniqueId : a -> String
+    , behaviour : Bevaviour a
+    , view : View a
+    }
 
 
-type alias ConfigData a =
-    { matchesQuery : String -> a -> Bool
-    , entryId : a -> String
-
-    -- BEHAVIOUR
-    , jumpAtEnds : Bool
+{-| -}
+type alias Bevaviour a =
+    { jumpAtEnds : Bool
     , closeAfterMouseSelection : Bool
+    , selectionFollowsFocus : Bool -- TODO handle this
+    , handleHomeAndEnd : Bool
+    , handleTypeAhead : Maybe (a -> String)
+    }
 
-    -- VIEW
-    , container : HtmlAttributes
+
+{-| -}
+type alias View a =
+    { container : HtmlAttributes
     , button :
         { selection : Maybe a
         , open : Bool
@@ -162,12 +169,6 @@ type alias HtmlDetails =
     }
 
 
-{-| -}
-config : ConfigData a -> Config a
-config =
-    Config
-
-
 
 ---- VIEW
 
@@ -175,16 +176,13 @@ config =
 {-| -}
 view :
     Config a
-    ->
-        { id : String
-        , labelledBy : String
-        }
+    -> { id : String, labelledBy : String }
     -> State a
     -> List a
     -> Maybe a
     -> Html (Msg a)
-view cfg ids state entries selection =
-    viewHelp cfg ids state selection entries <|
+view config ids state entries selection =
+    viewHelp config ids state selection entries <|
         { spaceAboveFirst = 0
         , droppedAboveFirst = 0
         , spaceAboveSecond = 0
@@ -211,13 +209,13 @@ viewLazy :
     -> List a
     -> Maybe a
     -> Html (Msg a)
-viewLazy entryHeight ((Config { entryId }) as cfg) ids ((State stuff) as state) entries selection =
+viewLazy entryHeight config ids ((State stuff) as state) entries selection =
     let
         maybeFocusIndex =
             stuff.keyboardFocus
                 |> Maybe.andThen
                     (\focus ->
-                        find entryId focus entries
+                        find config.uniqueId focus entries
                     )
                 |> Maybe.map Tuple.first
     in
@@ -226,7 +224,7 @@ viewLazy entryHeight ((Config { entryId }) as cfg) ids ((State stuff) as state) 
             stuff.ulScrollTop
             stuff.ulClientHeight
             maybeFocusIndex
-        |> viewHelp cfg ids state selection entries
+        |> viewHelp config ids state selection entries
 
 
 viewHelp :
@@ -240,19 +238,19 @@ viewHelp :
     -> List a
     -> RenderedEntries a
     -> Html (Msg a)
-viewHelp (Config cfg) { id, labelledBy } (State stuff) selection allEntries renderedEntries =
+viewHelp config { id, labelledBy } (State stuff) selection allEntries renderedEntries =
     let
         displayed =
             List.length renderedEntries.visibleEntries
 
         { attributes, children } =
-            cfg.button
+            config.view.button
                 { selection = selection
                 , open = stuff.open
                 }
     in
     Html.div
-        (appendAttributes NoOp cfg.container [])
+        (appendAttributes NoOp config.view.container [])
         [ Html.button
             ([ Attributes.id (printButtonId id)
              , Attributes.attribute "aria-haspopup" "listbox"
@@ -264,7 +262,12 @@ viewHelp (Config cfg) { id, labelledBy } (State stuff) selection allEntries rend
              , Events.on "keydown"
                 (Decode.field "key" Decode.string
                     |> Decode.andThen
-                        (buttonKeyDown id cfg.entryId cfg.jumpAtEnds stuff.keyboardFocus allEntries)
+                        (buttonKeyDown id
+                            config.uniqueId
+                            config.behaviour.jumpAtEnds
+                            stuff.keyboardFocus
+                            allEntries
+                        )
                 )
              ]
                 |> setAriaExpanded stuff.open
@@ -285,8 +288,8 @@ viewHelp (Config cfg) { id, labelledBy } (State stuff) selection allEntries rend
                 (Decode.field "key" Decode.string
                     |> Decode.andThen
                         (listKeydown id
-                            cfg.jumpAtEnds
-                            cfg.entryId
+                            config.behaviour.jumpAtEnds
+                            config.uniqueId
                             stuff.keyboardFocus
                             allEntries
                             renderedEntries.droppedAboveFirst
@@ -301,35 +304,16 @@ viewHelp (Config cfg) { id, labelledBy } (State stuff) selection allEntries rend
                 Decode.map2 ListScrolled
                     (Decode.at [ "target", "scrollTop" ] Decode.float)
                     (Decode.at [ "target", "clientHeight" ] Decode.float)
-             , Events.on "keypress"
-                (Decode.field "key" Decode.string
-                    |> Decode.andThen
-                        (\code ->
-                            case code of
-                                "Home" ->
-                                    Decode.succeed <|
-                                        ListHomePressed id cfg.entryId allEntries
-
-                                "End" ->
-                                    Decode.succeed <|
-                                        ListEndPressed id cfg.entryId allEntries
-
-                                _ ->
-                                    if String.length code == 1 then
-                                        Decode.succeed <|
-                                            ListKeyPressed id cfg.entryId allEntries code
-                                    else
-                                        Decode.fail "not handling that key here"
-                        )
-                )
              ]
-                |> setDisplay stuff.open
-                |> setAriaActivedescendant
+                |> handleKeypress
+                    config.behaviour.handleHomeAndEnd
+                    config.behaviour.handleTypeAhead
                     id
-                    cfg.entryId
-                    stuff.keyboardFocus
+                    config.uniqueId
                     allEntries
-                |> appendAttributes NoOp cfg.ul
+                |> setDisplay stuff.open
+                |> setAriaActivedescendant id config.uniqueId stuff.keyboardFocus allEntries
+                |> appendAttributes NoOp config.view.ul
             )
             (viewEntries
                 { entryMouseEntered = EntryMouseEntered
@@ -337,7 +321,10 @@ viewHelp (Config cfg) { id, labelledBy } (State stuff) selection allEntries rend
                 , entryClicked = EntryClicked
                 , noOp = NoOp
                 }
-                cfg
+                { closeAfterMouseSelection = config.behaviour.closeAfterMouseSelection
+                , li = config.view.li
+                , entryId = config.uniqueId
+                }
                 id
                 stuff.keyboardFocus
                 stuff.mouseFocus
@@ -547,6 +534,50 @@ arrowDownPressed id entryId jumpAtEnds allEntries focus msgs =
                     focusFirstEntry
 
 
+handleKeypress :
+    Bool
+    -> Maybe (a -> String)
+    -> String
+    -> (a -> String)
+    -> List a
+    -> List (Html.Attribute (Msg a))
+    -> List (Html.Attribute (Msg a))
+handleKeypress handleHomeAndEnd handleTypeAhead id uniqueId allEntries attrs =
+    Events.on "keypress"
+        (Decode.field "key" Decode.string
+            |> Decode.andThen
+                (\code ->
+                    case code of
+                        "Home" ->
+                            if handleHomeAndEnd then
+                                Decode.succeed <|
+                                    ListHomePressed id uniqueId allEntries
+                            else
+                                Decode.fail "not handling that key here"
+
+                        "End" ->
+                            if handleHomeAndEnd then
+                                Decode.succeed <|
+                                    ListEndPressed id uniqueId allEntries
+                            else
+                                Decode.fail "not handling that key here"
+
+                        _ ->
+                            case handleTypeAhead of
+                                Nothing ->
+                                    Decode.fail "not handling that key here"
+
+                                Just entryToString ->
+                                    if String.length code == 1 then
+                                        Decode.succeed <|
+                                            ListKeyPressed id uniqueId allEntries entryToString code
+                                    else
+                                        Decode.fail "not handling that key here"
+                )
+        )
+        :: attrs
+
+
 scrollDataDecoder : Int -> Decoder ScrollData
 scrollDataDecoder index =
     Decode.succeed ScrollData
@@ -598,8 +629,8 @@ type Msg a
     | EntryMouseLeft
     | EntryClicked String Bool String a
       -- QUERY
-    | ListKeyPressed String (a -> String) (List a) String
-    | CurrentTimeReceived String (a -> String) (List a) String Time.Posix
+    | ListKeyPressed String (a -> String) (List a) (a -> String) String
+    | CurrentTimeReceived String (a -> String) (List a) (a -> String) String Time.Posix
     | Tick Time.Posix
 
 
@@ -804,14 +835,14 @@ update entrySelected ((State stuff) as state) msg =
             )
 
         -- QUERY
-        ListKeyPressed id entryId entries code ->
+        ListKeyPressed id entryId entries entryToString code ->
             ( state
             , Time.now
-                |> Task.perform (CurrentTimeReceived id entryId entries code)
+                |> Task.perform (CurrentTimeReceived id entryId entries entryToString code)
             , Nothing
             )
 
-        CurrentTimeReceived id entryId entries code currentTime ->
+        CurrentTimeReceived id entryId entries entryToString code currentTime ->
             let
                 ( newQuery, queryText ) =
                     case stuff.query of
@@ -824,10 +855,10 @@ update entrySelected ((State stuff) as state) msg =
                 newKeyboardFocus =
                     case stuff.keyboardFocus of
                         Nothing ->
-                            findWithQueryFromTop entryId queryText entries
+                            findWithQueryFromTop entryId queryText entryToString entries
 
                         Just focus ->
-                            findWithQuery entryId focus queryText entries
+                            findWithQuery entryId focus queryText entryToString entries
             in
             ( State
                 { stuff

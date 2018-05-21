@@ -391,38 +391,38 @@ findHelp index entryId selectedId entries =
                 findHelp (index + 1) entryId selectedId rest
 
 
-findWithQueryFromTop : (a -> String) -> String -> List a -> Maybe String
-findWithQueryFromTop entryId query entries =
-    proceed entryId Nothing query entries
+findWithQueryFromTop : (a -> String) -> String -> (a -> String) -> List a -> Maybe String
+findWithQueryFromTop entryId query entryToString entries =
+    proceed entryId Nothing query entryToString entries
 
 
-findWithQuery : (a -> String) -> String -> String -> List a -> Maybe String
-findWithQuery entryId focus query entries =
+findWithQuery : (a -> String) -> String -> String -> (a -> String) -> List a -> Maybe String
+findWithQuery entryId focus query entryToString entries =
     case entries of
         [] ->
             Nothing
 
         entry :: rest ->
             if entryId entry == focus then
-                proceed entryId (Just (entryId entry)) query rest
+                proceed entryId (Just (entryId entry)) query entryToString rest
             else
-                findWithQuery entryId focus query rest
+                findWithQuery entryId focus query entryToString rest
 
 
-proceed : (a -> String) -> Maybe String -> String -> List a -> Maybe String
-proceed entryId entry query entries =
+proceed : (a -> String) -> Maybe String -> String -> (a -> String) -> List a -> Maybe String
+proceed entryId entry query entryToString entries =
     case entries of
         [] ->
             entry
 
         next :: rest ->
             if
-                String.toLower (entryId next)
+                String.toLower (entryToString next)
                     |> String.startsWith (String.toLower query)
             then
                 Just (entryId next)
             else
-                proceed entryId entry query rest
+                proceed entryId entry query entryToString rest
 
 
 type Previous a

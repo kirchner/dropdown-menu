@@ -280,15 +280,16 @@ filterableConfig =
 
 optionalConfig : DropdownMenu.Simple.Config String
 optionalConfig =
-    DropdownMenu.Simple.config
-        { matchesQuery =
-            \query value ->
-                String.toLower value
-                    |> String.contains (String.toLower query)
-        , entryId = identity
-        , jumpAtEnds = True
+    { uniqueId = identity
+    , behaviour =
+        { jumpAtEnds = True
         , closeAfterMouseSelection = False
-        , container = [ Attributes.style "width" "500px" ]
+        , selectionFollowsFocus = False
+        , handleHomeAndEnd = True
+        , handleTypeAhead = Just identity
+        }
+    , view =
+        { container = [ Attributes.style "width" "500px" ]
         , button =
             \{ selection, open } ->
                 { attributes = [ Attributes.class "button" ]
@@ -311,6 +312,7 @@ optionalConfig =
                 , children = [ Html.text name ]
                 }
         }
+    }
 
 
 
