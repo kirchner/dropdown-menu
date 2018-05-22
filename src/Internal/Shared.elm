@@ -404,7 +404,13 @@ findWithQuery entryId focus query entryToString entries =
 
         entry :: rest ->
             if entryId entry == focus then
-                proceed entryId (Just (entryId entry)) query entryToString rest
+                if
+                    String.toLower (entryToString entry)
+                        |> String.startsWith (String.toLower query)
+                then
+                    Just (entryId entry)
+                else
+                    proceed entryId (Just (entryId entry)) query entryToString rest
             else
                 findWithQuery entryId focus query entryToString rest
 
