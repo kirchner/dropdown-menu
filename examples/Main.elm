@@ -165,6 +165,9 @@ subscriptions model =
         [ model.localeMenu
             |> DropdownMenu.Simple.subscriptions
             |> Sub.map LocaleMenuMsg
+        , model.localeRequiredMenu
+            |> DropdownMenu.Simple.subscriptions
+            |> Sub.map LocaleRequiredMenuMsg
         ]
 
 
