@@ -379,7 +379,7 @@ textfieldKeydown id jumpAtEnds entryId open keyboardFocus allEntries droppedAbov
                 |> Maybe.map
                     (\( _, entry ) ->
                         Decode.succeed (TextfieldEnterPressed entry)
-                            |> allowDefault
+                            |> preventDefault
                     )
                 |> Maybe.withDefault
                     (Decode.fail "not handling that key here")
