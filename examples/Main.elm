@@ -288,6 +288,7 @@ simpleConfig =
         { jumpAtEnds = True
         , closeAfterMouseSelection = False
         , selectionFollowsFocus = True
+        , separateFocus = True
         , handleHomeAndEnd = True
         , typeAhead =
             DropdownMenu.Simple.typeAhead 200 <|

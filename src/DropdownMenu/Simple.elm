@@ -91,7 +91,7 @@ type alias OpenData =
 
     -- FOCUS
     , keyboardFocus : String
-    , mouseFocus : Maybe String
+    , maybeMouseFocus : Maybe String
 
     -- DOM
     , ulScrollTop : Float
@@ -126,6 +126,7 @@ type alias Config a =
 type alias Behaviour a =
     { jumpAtEnds : Bool
     , closeAfterMouseSelection : Bool
+    , separateFocus : Bool
     , selectionFollowsFocus : Bool
     , handleHomeAndEnd : Bool
     , typeAhead : TypeAhead a
@@ -209,7 +210,7 @@ view config ids state allEntries selection =
         Closed ->
             viewClosed config ids allEntries selection
 
-        Open { keyboardFocus, mouseFocus, query } ->
+        Open { keyboardFocus, maybeMouseFocus, query } ->
             let
                 maybeQuery =
                     case query of
@@ -222,7 +223,7 @@ view config ids state allEntries selection =
             Html.div
                 (appendAttributes NoOp config.view.container [])
                 [ viewButton config ids allEntries selection True
-                , viewList config ids maybeQuery keyboardFocus mouseFocus selection allEntries <|
+                , viewList config ids maybeQuery keyboardFocus maybeMouseFocus selection allEntries <|
                     { spaceAboveFirst = 0
                     , droppedAboveFirst = 0
                     , spaceAboveSecond = 0
@@ -245,7 +246,7 @@ viewLazy entryHeight config ids state allEntries selection =
         Closed ->
             viewClosed config ids allEntries selection
 
-        Open { keyboardFocus, mouseFocus, ulScrollTop, ulClientHeight, query } ->
+        Open { keyboardFocus, maybeMouseFocus, ulScrollTop, ulClientHeight, query } ->
             let
                 maybeFocusIndex =
                     find config.uniqueId keyboardFocus allEntries
@@ -264,7 +265,7 @@ viewLazy entryHeight config ids state allEntries selection =
                 [ viewButton config ids allEntries selection True
                 , allEntries
                     |> computeRenderedEntries entryHeight ulScrollTop ulClientHeight maybeFocusIndex
-                    |> viewList config ids maybeQuery keyboardFocus mouseFocus selection allEntries
+                    |> viewList config ids maybeQuery keyboardFocus maybeMouseFocus selection allEntries
                 ]
 
 
@@ -338,11 +339,11 @@ viewList config ids maybeQuery keyboardFocus maybeMouseFocus selection allEntrie
             |> appendAttributes NoOp config.view.ul
         )
         (viewEntries
-            { entryMouseEntered = EntryMouseEntered
-            , entryMouseLeft = EntryMouseLeft
+            { entryMouseEntered = EntryMouseEntered config.behaviour
+            , entryMouseLeft = EntryMouseLeft config.behaviour
             , entryClicked =
                 \_ closeAfterMouseSelection _ a ->
-                    EntryClicked ids.id config.uniqueId closeAfterMouseSelection a
+                    EntryClicked config.behaviour ids.id config.uniqueId closeAfterMouseSelection a
             , noOp = NoOp
             }
             { closeAfterMouseSelection = config.behaviour.closeAfterMouseSelection
@@ -359,15 +360,15 @@ viewList config ids maybeQuery keyboardFocus maybeMouseFocus selection allEntrie
 
 
 buttonKeyDown : Behaviour a -> String -> (a -> String) -> List a -> String -> Decoder (Msg a)
-buttonKeyDown behaviour id entryId allEntries code =
+buttonKeyDown behaviour id uniqueId allEntries code =
     case code of
         "ArrowUp" ->
             Decode.succeed <|
-                ButtonArrowUpPressed behaviour id entryId allEntries
+                ButtonArrowUpPressed behaviour id uniqueId allEntries
 
         "ArrowDown" ->
             Decode.succeed <|
-                ButtonArrowDownPressed behaviour id entryId allEntries
+                ButtonArrowDownPressed behaviour id uniqueId allEntries
 
         _ ->
             Decode.fail "not handling that key here"
@@ -436,14 +437,14 @@ handleKeypress { uniqueId, behaviour } ids allEntries attrs =
                         "Home" ->
                             if behaviour.handleHomeAndEnd then
                                 Decode.succeed <|
-                                    ListHomePressed ids.id uniqueId allEntries
+                                    ListHomePressed behaviour ids.id uniqueId allEntries
                             else
                                 Decode.fail "not handling that key here"
 
                         "End" ->
                             if behaviour.handleHomeAndEnd then
                                 Decode.succeed <|
-                                    ListEndPressed ids.id uniqueId allEntries
+                                    ListEndPressed behaviour ids.id uniqueId allEntries
                             else
                                 Decode.fail "not handling that key here"
 
@@ -455,6 +456,7 @@ handleKeypress { uniqueId, behaviour } ids allEntries attrs =
                                 TypeAhead timeout matchesQuery ->
                                     if String.length code == 1 then
                                         ListKeyPressed
+                                            behaviour
                                             ids.id
                                             uniqueId
                                             allEntries
@@ -514,16 +516,16 @@ type Msg a
     | ListEnterPressed String (a -> String) (List a)
     | ListEscapePressed String
     | ListBlured
-    | ListHomePressed String (a -> String) (List a)
-    | ListEndPressed String (a -> String) (List a)
+    | ListHomePressed (Behaviour a) String (a -> String) (List a)
+    | ListEndPressed (Behaviour a) String (a -> String) (List a)
     | ListScrolled Float Float
       -- ENTRY
-    | EntryMouseEntered String
-    | EntryMouseLeft
-    | EntryClicked String (a -> String) Bool a
+    | EntryMouseEntered (Behaviour a) String
+    | EntryMouseLeft (Behaviour a)
+    | EntryClicked (Behaviour a) String (a -> String) Bool a
       -- QUERY
-    | ListKeyPressed String (a -> String) (List a) Int (String -> a -> Bool) String
-    | CurrentTimeReceived String (a -> String) (List a) Int (String -> a -> Bool) String Time.Posix
+    | ListKeyPressed (Behaviour a) String (a -> String) (List a) Int (String -> a -> Bool) String
+    | CurrentTimeReceived (Behaviour a) String (a -> String) (List a) Int (String -> a -> Bool) String Time.Posix
     | Tick Time.Posix
 
 
@@ -545,7 +547,7 @@ updateClosed entrySelected msg =
             ( Closed, Cmd.none, Nothing )
 
         -- BUTTON
-        ButtonClicked behaviour id entryId allEntries ->
+        ButtonClicked behaviour id uniqueId allEntries ->
             case List.head allEntries of
                 Nothing ->
                     ( Closed, Cmd.none, Nothing )
@@ -554,8 +556,12 @@ updateClosed entrySelected msg =
                     ( Open
                         { preventBlur = False
                         , query = NoQuery
-                        , keyboardFocus = entryId firstEntry
-                        , mouseFocus = Nothing
+                        , keyboardFocus = uniqueId firstEntry
+                        , maybeMouseFocus =
+                            if behaviour.separateFocus then
+                                Nothing
+                            else
+                                Just (uniqueId firstEntry)
                         , ulScrollTop = 0
                         , ulClientHeight = 1000
                         }
@@ -569,7 +575,7 @@ updateClosed entrySelected msg =
                         Nothing
                     )
 
-        ButtonArrowUpPressed behaviour id entryId allEntries ->
+        ButtonArrowUpPressed behaviour id uniqueId allEntries ->
             case List.head (List.reverse allEntries) of
                 Nothing ->
                     ( Closed, Cmd.none, Nothing )
@@ -578,8 +584,12 @@ updateClosed entrySelected msg =
                     ( Open
                         { preventBlur = False
                         , query = NoQuery
-                        , keyboardFocus = entryId lastEntry
-                        , mouseFocus = Nothing
+                        , keyboardFocus = uniqueId lastEntry
+                        , maybeMouseFocus =
+                            if behaviour.separateFocus then
+                                Nothing
+                            else
+                                Just (uniqueId lastEntry)
                         , ulScrollTop = 0
                         , ulClientHeight = 1000
                         }
@@ -593,7 +603,7 @@ updateClosed entrySelected msg =
                         Nothing
                     )
 
-        ButtonArrowDownPressed behaviour id entryId allEntries ->
+        ButtonArrowDownPressed behaviour id uniqueId allEntries ->
             case List.head allEntries of
                 Nothing ->
                     ( Closed, Cmd.none, Nothing )
@@ -602,8 +612,12 @@ updateClosed entrySelected msg =
                     ( Open
                         { preventBlur = False
                         , query = NoQuery
-                        , keyboardFocus = entryId firstEntry
-                        , mouseFocus = Nothing
+                        , keyboardFocus = uniqueId firstEntry
+                        , maybeMouseFocus =
+                            if behaviour.separateFocus then
+                                Nothing
+                            else
+                                Just (uniqueId firstEntry)
                         , ulScrollTop = 0
                         , ulClientHeight = 1000
                         }
@@ -641,11 +655,9 @@ updateOpen entrySelected stuff msg =
             case findPrevious uniqueId stuff.keyboardFocus allEntries of
                 Just (Last lastEntry) ->
                     if behaviour.jumpAtEnds then
-                        ( Open
-                            { stuff
-                                | keyboardFocus = uniqueId lastEntry
-                                , query = NoQuery
-                            }
+                        ( { stuff | query = NoQuery }
+                            |> updateKeyboardFocus behaviour (uniqueId lastEntry)
+                            |> Open
                         , scrollListToBottom id
                         , if behaviour.selectionFollowsFocus then
                             Just (entrySelected lastEntry)
@@ -659,11 +671,9 @@ updateOpen entrySelected stuff msg =
                         )
 
                 Just (Previous newIndex newEntry) ->
-                    ( Open
-                        { stuff
-                            | keyboardFocus = uniqueId newEntry
-                            , query = NoQuery
-                        }
+                    ( { stuff | query = NoQuery }
+                        |> updateKeyboardFocus behaviour (uniqueId newEntry)
+                        |> Open
                     , case maybeScrollData of
                         Nothing ->
                             Browser.scrollIntoView (printEntryId id (uniqueId newEntry))
@@ -687,11 +697,9 @@ updateOpen entrySelected stuff msg =
             case findNext uniqueId stuff.keyboardFocus allEntries of
                 Just (First firstEntry) ->
                     if behaviour.jumpAtEnds then
-                        ( Open
-                            { stuff
-                                | keyboardFocus = uniqueId firstEntry
-                                , query = NoQuery
-                            }
+                        ( { stuff | query = NoQuery }
+                            |> updateKeyboardFocus behaviour (uniqueId firstEntry)
+                            |> Open
                         , scrollListToTop id
                         , if behaviour.selectionFollowsFocus then
                             Just (entrySelected firstEntry)
@@ -705,11 +713,9 @@ updateOpen entrySelected stuff msg =
                         )
 
                 Just (Next newIndex newEntry) ->
-                    ( Open
-                        { stuff
-                            | keyboardFocus = uniqueId newEntry
-                            , query = NoQuery
-                        }
+                    ( { stuff | query = NoQuery }
+                        |> updateKeyboardFocus behaviour (uniqueId newEntry)
+                        |> Open
                     , case maybeScrollData of
                         Nothing ->
                             Browser.scrollIntoView (printEntryId id (uniqueId newEntry))
@@ -758,7 +764,7 @@ updateOpen entrySelected stuff msg =
                 , Nothing
                 )
 
-        ListHomePressed id entryId allEntries ->
+        ListHomePressed behaviour id uniqueId allEntries ->
             case List.head allEntries of
                 Nothing ->
                     ( Closed
@@ -767,26 +773,22 @@ updateOpen entrySelected stuff msg =
                     )
 
                 Just firstEntry ->
-                    ( Open
-                        { stuff
-                            | keyboardFocus = entryId firstEntry
-                            , query = NoQuery
-                        }
+                    ( { stuff | query = NoQuery }
+                        |> updateKeyboardFocus behaviour (uniqueId firstEntry)
+                        |> Open
                     , scrollListToTop id
                     , Nothing
                     )
 
-        ListEndPressed id entryId allEntries ->
+        ListEndPressed behaviour id uniqueId allEntries ->
             case List.head (List.reverse allEntries) of
                 Nothing ->
                     ( Closed, Cmd.none, Nothing )
 
                 Just firstEntry ->
-                    ( Open
-                        { stuff
-                            | keyboardFocus = entryId firstEntry
-                            , query = NoQuery
-                        }
+                    ( { stuff | query = NoQuery }
+                        |> updateKeyboardFocus behaviour (uniqueId firstEntry)
+                        |> Open
                     , scrollListToBottom id
                     , Nothing
                     )
@@ -802,27 +804,40 @@ updateOpen entrySelected stuff msg =
             )
 
         -- ENTRY
-        EntryMouseEntered newFocus ->
-            ( Open { stuff | mouseFocus = Just newFocus }
+        EntryMouseEntered behaviour newFocus ->
+            ( Open
+                { stuff
+                    | keyboardFocus =
+                        if behaviour.separateFocus then
+                            stuff.keyboardFocus
+                        else
+                            newFocus
+                    , maybeMouseFocus = Just newFocus
+                }
             , Cmd.none
             , Nothing
             )
 
-        EntryMouseLeft ->
-            ( Open { stuff | mouseFocus = Nothing }
+        EntryMouseLeft behaviour ->
+            ( Open
+                { stuff
+                    | maybeMouseFocus =
+                        if behaviour.separateFocus then
+                            Nothing
+                        else
+                            stuff.maybeMouseFocus
+                }
             , Cmd.none
             , Nothing
             )
 
-        EntryClicked id entryId closeAfterMouseSelection a ->
+        EntryClicked behaviour id uniqueId closeAfterMouseSelection a ->
             ( if closeAfterMouseSelection then
                 Closed
               else
-                Open
-                    { stuff
-                        | keyboardFocus = entryId a
-                        , query = NoQuery
-                    }
+                { stuff | query = NoQuery }
+                    |> updateKeyboardFocus behaviour (uniqueId a)
+                    |> Open
             , if closeAfterMouseSelection then
                 focusButton id
               else
@@ -831,14 +846,15 @@ updateOpen entrySelected stuff msg =
             )
 
         -- QUERY
-        ListKeyPressed id entryId entries timeout matchesQuery code ->
+        ListKeyPressed behaviour id uniqueId entries timeout matchesQuery code ->
             ( Open stuff
             , Time.now
-                |> Task.perform (CurrentTimeReceived id entryId entries timeout matchesQuery code)
+                |> Task.perform
+                    (CurrentTimeReceived behaviour id uniqueId entries timeout matchesQuery code)
             , Nothing
             )
 
-        CurrentTimeReceived id uniqueId allEntries timeout matchesQuery code currentTime ->
+        CurrentTimeReceived behaviour id uniqueId allEntries timeout matchesQuery code currentTime ->
             let
                 ( newQuery, queryText ) =
                     case stuff.query of
@@ -856,11 +872,9 @@ updateOpen entrySelected stuff msg =
                     ( Closed, Cmd.none, Nothing )
 
                 Just newFocus ->
-                    ( Open
-                        { stuff
-                            | query = newQuery
-                            , keyboardFocus = newFocus
-                        }
+                    ( { stuff | query = newQuery }
+                        |> updateKeyboardFocus behaviour newFocus
+                        |> Open
                     , Browser.scrollIntoView (printEntryId id newFocus)
                         |> Task.attempt (\_ -> NoOp)
                     , Nothing
@@ -884,6 +898,19 @@ updateOpen entrySelected stuff msg =
             ( Open stuff, Cmd.none, Nothing )
 
 
+updateKeyboardFocus : { b | separateFocus : Bool } -> String -> OpenData -> OpenData
+updateKeyboardFocus { separateFocus } newFocus stuff =
+    { stuff
+        | keyboardFocus = newFocus
+        , maybeMouseFocus =
+            if separateFocus then
+                stuff.maybeMouseFocus
+            else
+                Just newFocus
+    }
+
+
+{-| -}
 subscriptions : State -> Sub (Msg a)
 subscriptions state =
     case state of
