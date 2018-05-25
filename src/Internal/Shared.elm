@@ -16,6 +16,7 @@ module Internal.Shared
         , findPrevious
         , findWithQuery
         , findWithQueryFromTop
+        , indexOf
         , last
         , preventDefault
         , printEntryId
@@ -371,6 +372,24 @@ domIndex newIndex droppedAboveFirst droppedAboveSecond droppedBelowFirst display
 
 
 ---- FIND CURRENT/NEXT/PREVIOUS ENTRIES
+
+
+indexOf : (a -> String) -> String -> List a -> Maybe Int
+indexOf =
+    indexOfHelp 0
+
+
+indexOfHelp : Int -> (a -> String) -> String -> List a -> Maybe Int
+indexOfHelp index uniqueId id entries =
+    case entries of
+        [] ->
+            Nothing
+
+        entry :: rest ->
+            if uniqueId entry == id then
+                Just index
+            else
+                indexOfHelp (index + 1) uniqueId id rest
 
 
 find : (a -> String) -> String -> List a -> Maybe ( Int, a )

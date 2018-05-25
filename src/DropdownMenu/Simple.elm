@@ -1,7 +1,10 @@
 module DropdownMenu.Simple
     exposing
-        ( Bevaviour
+        ( Behaviour
         , Config
+        , HtmlAttributes
+        , HtmlDetails
+        , Ids
         , Msg
         , State
         , View
@@ -56,6 +59,7 @@ import Internal.Shared
         , findPrevious
         , findWithQuery
         , findWithQueryFromTop
+        , indexOf
         , last
         , preventDefault
         , printEntryId
@@ -73,20 +77,23 @@ import Time
 
 
 {-| -}
-type State a
+type State
     = Closed
-    | Open
-        { preventBlur : Bool
-        , query : Query
+    | Open OpenData
 
-        -- FOCUS
-        , keyboardFocus : String
-        , mouseFocus : Maybe String
 
-        -- DOM
-        , ulScrollTop : Float
-        , ulClientHeight : Float
-        }
+type alias OpenData =
+    { preventBlur : Bool
+    , query : Query
+
+    -- FOCUS
+    , keyboardFocus : String
+    , mouseFocus : Maybe String
+
+    -- DOM
+    , ulScrollTop : Float
+    , ulClientHeight : Float
+    }
 
 
 type Query
@@ -95,7 +102,7 @@ type Query
 
 
 {-| -}
-closed : State a
+closed : State
 closed =
     Closed
 
@@ -107,13 +114,13 @@ closed =
 {-| -}
 type alias Config a =
     { uniqueId : a -> String
-    , behaviour : Bevaviour a
+    , behaviour : Behaviour a
     , view : View a
     }
 
 
 {-| -}
-type alias Bevaviour a =
+type alias Behaviour a =
     { jumpAtEnds : Bool
     , closeAfterMouseSelection : Bool
     , selectionFollowsFocus : Bool -- TODO handle this
@@ -157,6 +164,7 @@ type alias HtmlDetails =
 ---- VIEW
 
 
+{-| -}
 type alias Ids =
     { id : String
     , labelledBy : String
@@ -164,7 +172,7 @@ type alias Ids =
 
 
 {-| -}
-view : Config a -> Ids -> State a -> List a -> Maybe a -> Html (Msg a)
+view : Config a -> Ids -> State -> List a -> Maybe a -> Html (Msg a)
 view config ids state allEntries selection =
     case state of
         Closed ->
@@ -191,7 +199,7 @@ view config ids state allEntries selection =
 
 
 {-| -}
-viewLazy : (a -> Float) -> Config a -> Ids -> State a -> List a -> Maybe a -> Html (Msg a)
+viewLazy : (a -> Float) -> Config a -> Ids -> State -> List a -> Maybe a -> Html (Msg a)
 viewLazy entryHeight config ids state allEntries selection =
     case state of
         Closed ->
@@ -268,10 +276,9 @@ viewList config ids keyboardFocus maybeMouseFocus selection allEntries renderedE
          , Events.preventDefaultOn "keydown"
             (Decode.field "key" Decode.string
                 |> Decode.andThen
-                    (listKeydown config ids keyboardFocus allEntries renderedEntries)
+                    (listKeydown config ids keyboardFocus allEntries renderedEntries.visibleEntries)
             )
-         , Events.on "blur" <|
-            Decode.succeed ListBlured
+         , Events.on "blur" (Decode.succeed ListBlured)
          , Events.on "scroll" <|
             Decode.map2 ListScrolled
                 (Decode.at [ "target", "scrollTop" ] Decode.float)
@@ -321,100 +328,36 @@ listKeydown :
     -> Ids
     -> String
     -> List a
-    -> RenderedEntries a
+    -> List a
     -> String
     -> Decoder ( Msg a, Bool )
-listKeydown { uniqueId, behaviour } { id } keyboardFocus allEntries renderedEntries code =
-    let
-        displayed =
-            List.length renderedEntries.visibleEntries
-    in
+listKeydown { uniqueId, behaviour } { id } keyboardFocus allEntries visibleEntries code =
     case code of
         "ArrowUp" ->
-            case findPrevious uniqueId keyboardFocus allEntries of
-                Just (Last lastEntry) ->
-                    if behaviour.jumpAtEnds then
-                        ListArrowPressed Nothing ScrollToBottom id (uniqueId lastEntry)
-                            |> Decode.succeed
-                            |> preventDefault
-                    else
-                        ListArrowPressed Nothing ScrollToTop id keyboardFocus
-                            |> Decode.succeed
-                            |> preventDefault
-
-                Just (Previous newIndex newEntry) ->
-                    domIndex newIndex
-                        renderedEntries.droppedAboveFirst
-                        renderedEntries.droppedAboveSecond
-                        renderedEntries.droppedBelowFirst
-                        displayed
-                        |> scrollDataDecoder
-                        |> Decode.map
-                            (\scrollData ->
-                                ListArrowPressed (Just scrollData)
-                                    UseScrollData
-                                    id
-                                    (uniqueId newEntry)
-                            )
-                        |> preventDefault
-
-                Nothing ->
-                    case List.head (List.reverse allEntries) of
-                        Nothing ->
-                            Decode.fail "not handling that key here"
-
-                        Just lastEntry ->
-                            ListArrowPressed Nothing ScrollToBottom id (uniqueId lastEntry)
-                                |> Decode.succeed
-                                |> preventDefault
+            Decode.oneOf
+                [ visibleEntries
+                    |> indexOf uniqueId keyboardFocus
+                    |> Maybe.map (\index -> Decode.map Just (scrollDataDecoder (index + 1)))
+                    |> Maybe.withDefault (Decode.succeed Nothing)
+                , Decode.succeed Nothing
+                ]
+                |> Decode.map (ListArrowUpPressed behaviour id uniqueId allEntries)
+                |> preventDefault
 
         "ArrowDown" ->
-            case findNext uniqueId keyboardFocus allEntries of
-                Just (First firstEntry) ->
-                    if behaviour.jumpAtEnds then
-                        ListArrowPressed Nothing ScrollToTop id (uniqueId firstEntry)
-                            |> Decode.succeed
-                            |> preventDefault
-                    else
-                        ListArrowPressed Nothing ScrollToBottom id keyboardFocus
-                            |> Decode.succeed
-                            |> preventDefault
-
-                Just (Next newIndex newEntry) ->
-                    domIndex newIndex
-                        renderedEntries.droppedAboveFirst
-                        renderedEntries.droppedAboveSecond
-                        renderedEntries.droppedBelowFirst
-                        displayed
-                        |> scrollDataDecoder
-                        |> Decode.map
-                            (\scrollData ->
-                                ListArrowPressed (Just scrollData)
-                                    UseScrollData
-                                    id
-                                    (uniqueId newEntry)
-                            )
-                        |> preventDefault
-
-                Nothing ->
-                    case List.head allEntries of
-                        Nothing ->
-                            Decode.fail "not handling that key here"
-
-                        Just firstEntry ->
-                            ListArrowPressed Nothing ScrollToTop id (uniqueId firstEntry)
-                                |> Decode.succeed
-                                |> preventDefault
+            Decode.oneOf
+                [ visibleEntries
+                    |> indexOf uniqueId keyboardFocus
+                    |> Maybe.map (\index -> Decode.map Just (scrollDataDecoder (index + 3)))
+                    |> Maybe.withDefault (Decode.succeed Nothing)
+                , Decode.succeed Nothing
+                ]
+                |> Decode.map (ListArrowDownPressed behaviour id uniqueId allEntries)
+                |> preventDefault
 
         "Enter" ->
-            find uniqueId keyboardFocus allEntries
-                |> Maybe.map
-                    (\( _, entry ) ->
-                        Decode.succeed (ListEnterPressed id entry)
-                            |> allowDefault
-                    )
-                |> Maybe.withDefault
-                    (Decode.fail "not handling that key here")
+            Decode.succeed (ListEnterPressed id uniqueId allEntries)
+                |> preventDefault
 
         "Escape" ->
             Decode.succeed (ListEscapePressed id)
@@ -510,8 +453,9 @@ type Msg a
       -- LIST
     | ListMouseDown
     | ListMouseUp
-    | ListArrowPressed (Maybe ScrollData) ScrollAction String String
-    | ListEnterPressed String a
+    | ListArrowUpPressed (Behaviour a) String (a -> String) (List a) (Maybe ScrollData)
+    | ListArrowDownPressed (Behaviour a) String (a -> String) (List a) (Maybe ScrollData)
+    | ListEnterPressed String (a -> String) (List a)
     | ListEscapePressed String
     | ListBlured
     | ListHomePressed String (a -> String) (List a)
@@ -528,330 +472,314 @@ type Msg a
 
 
 {-| -}
-update : (a -> outMsg) -> State a -> Msg a -> ( State a, Cmd (Msg a), Maybe outMsg )
+update : (a -> outMsg) -> State -> Msg a -> ( State, Cmd (Msg a), Maybe outMsg )
 update entrySelected state msg =
+    case state of
+        Closed ->
+            updateClosed msg
+
+        Open stuff ->
+            updateOpen entrySelected stuff msg
+
+
+updateClosed : Msg a -> ( State, Cmd (Msg a), Maybe outMsg )
+updateClosed msg =
     case msg of
         NoOp ->
-            ( state, Cmd.none, Nothing )
+            ( Closed, Cmd.none, Nothing )
 
         -- BUTTON
         ButtonClicked id entryId allEntries ->
-            case state of
-                Open _ ->
-                    ( state, Cmd.none, Nothing )
+            case List.head allEntries of
+                Nothing ->
+                    ( Closed, Cmd.none, Nothing )
 
-                Closed ->
-                    case List.head allEntries of
-                        Nothing ->
-                            ( state, Cmd.none, Nothing )
-
-                        Just firstEntry ->
-                            ( Open
-                                { preventBlur = False
-                                , query = NoQuery
-                                , keyboardFocus = entryId firstEntry
-                                , mouseFocus = Nothing
-                                , ulScrollTop = 0
-                                , ulClientHeight = 1000
-                                }
-                            , [ Browser.setScrollTop (printListId id) 0
-                                    |> Task.attempt (\_ -> NoOp)
-                              , focusList id
-                              ]
-                                |> Cmd.batch
-                            , Nothing
-                            )
+                Just firstEntry ->
+                    ( Open
+                        { preventBlur = False
+                        , query = NoQuery
+                        , keyboardFocus = entryId firstEntry
+                        , mouseFocus = Nothing
+                        , ulScrollTop = 0
+                        , ulClientHeight = 1000
+                        }
+                    , Cmd.batch
+                        [ scrollListToTop id
+                        , focusList id
+                        ]
+                    , Nothing
+                    )
 
         ButtonArrowUpPressed id entryId allEntries ->
-            case state of
-                Open _ ->
-                    ( state, Cmd.none, Nothing )
+            case List.head (List.reverse allEntries) of
+                Nothing ->
+                    ( Closed, Cmd.none, Nothing )
 
-                Closed ->
-                    case List.head (List.reverse allEntries) of
-                        Nothing ->
-                            ( state, Cmd.none, Nothing )
-
-                        Just lastEntry ->
-                            ( Open
-                                { preventBlur = False
-                                , query = NoQuery
-                                , keyboardFocus = entryId lastEntry
-                                , mouseFocus = Nothing
-                                , ulScrollTop = 0
-                                , ulClientHeight = 1000
-                                }
-                            , [ Browser.setScrollBottom (printListId id) 0
-                                    |> Task.attempt (\_ -> NoOp)
-                              , focusList id
-                              ]
-                                |> Cmd.batch
-                            , Nothing
-                            )
+                Just lastEntry ->
+                    ( Open
+                        { preventBlur = False
+                        , query = NoQuery
+                        , keyboardFocus = entryId lastEntry
+                        , mouseFocus = Nothing
+                        , ulScrollTop = 0
+                        , ulClientHeight = 1000
+                        }
+                    , Cmd.batch
+                        [ scrollListToBottom id
+                        , focusList id
+                        ]
+                    , Nothing
+                    )
 
         ButtonArrowDownPressed id entryId allEntries ->
-            case state of
-                Open _ ->
-                    ( state, Cmd.none, Nothing )
+            case List.head allEntries of
+                Nothing ->
+                    ( Closed, Cmd.none, Nothing )
 
-                Closed ->
-                    case List.head allEntries of
-                        Nothing ->
-                            ( state, Cmd.none, Nothing )
+                Just firstEntry ->
+                    ( Open
+                        { preventBlur = False
+                        , query = NoQuery
+                        , keyboardFocus = entryId firstEntry
+                        , mouseFocus = Nothing
+                        , ulScrollTop = 0
+                        , ulClientHeight = 1000
+                        }
+                    , Cmd.batch
+                        [ scrollListToTop id
+                        , focusList id
+                        ]
+                    , Nothing
+                    )
 
-                        Just firstEntry ->
-                            ( Open
-                                { preventBlur = False
-                                , query = NoQuery
-                                , keyboardFocus = entryId firstEntry
-                                , mouseFocus = Nothing
-                                , ulScrollTop = 0
-                                , ulClientHeight = 1000
-                                }
-                            , [ Browser.setScrollTop (printListId id) 0
-                                    |> Task.attempt (\_ -> NoOp)
-                              , focusList id
-                              ]
-                                |> Cmd.batch
-                            , Nothing
-                            )
+        _ ->
+            ( Closed, Cmd.none, Nothing )
 
+
+updateOpen : (a -> outMsg) -> OpenData -> Msg a -> ( State, Cmd (Msg a), Maybe outMsg )
+updateOpen entrySelected stuff msg =
+    case msg of
         -- LIST
         ListMouseDown ->
-            case state of
-                Closed ->
-                    ( state, Cmd.none, Nothing )
-
-                Open stuff ->
-                    ( Open { stuff | preventBlur = True }, Cmd.none, Nothing )
-
-        ListMouseUp ->
-            case state of
-                Closed ->
-                    ( state, Cmd.none, Nothing )
-
-                Open stuff ->
-                    ( Open { stuff | preventBlur = False }, Cmd.none, Nothing )
-
-        ListArrowPressed maybeScrollData scrollAction id newFocus ->
-            case state of
-                Closed ->
-                    ( state, Cmd.none, Nothing )
-
-                Open stuff ->
-                    ( Open { stuff | keyboardFocus = newFocus }
-                    , case scrollAction of
-                        ScrollToTop ->
-                            Browser.setScrollTop (printListId id) 0
-                                |> Task.attempt (\_ -> NoOp)
-
-                        ScrollToBottom ->
-                            Browser.setScrollBottom (printListId id) 0
-                                |> Task.attempt (\_ -> NoOp)
-
-                        UseScrollData ->
-                            case maybeScrollData of
-                                Nothing ->
-                                    Cmd.none
-
-                                Just scrollData ->
-                                    adjustScrollTop NoOp id scrollData
-                    , Nothing
-                    )
-
-        ListEnterPressed id a ->
-            case state of
-                Closed ->
-                    ( state, Cmd.none, Nothing )
-
-                Open _ ->
-                    ( Closed
-                    , focusButton id
-                    , Just (entrySelected a)
-                    )
-
-        ListEscapePressed id ->
-            case state of
-                Closed ->
-                    ( state, Cmd.none, Nothing )
-
-                Open _ ->
-                    ( Closed
-                    , focusButton id
-                    , Nothing
-                    )
-
-        ListBlured ->
-            case state of
-                Closed ->
-                    ( state, Cmd.none, Nothing )
-
-                Open { preventBlur } ->
-                    if preventBlur then
-                        ( state, Cmd.none, Nothing )
-                    else
-                        ( Closed
-                        , Cmd.none
-                        , Nothing
-                        )
-
-        ListHomePressed id entryId allEntries ->
-            case state of
-                Closed ->
-                    ( state, Cmd.none, Nothing )
-
-                Open stuff ->
-                    case List.head allEntries of
-                        Nothing ->
-                            ( Closed, Cmd.none, Nothing )
-
-                        Just firstEntry ->
-                            ( Open { stuff | keyboardFocus = entryId firstEntry }
-                            , Browser.setScrollTop (printListId id) 0
-                                |> Task.attempt (\_ -> NoOp)
-                            , Nothing
-                            )
-
-        ListEndPressed id entryId allEntries ->
-            case state of
-                Closed ->
-                    ( state, Cmd.none, Nothing )
-
-                Open stuff ->
-                    case List.head (List.reverse allEntries) of
-                        Nothing ->
-                            ( Closed, Cmd.none, Nothing )
-
-                        Just firstEntry ->
-                            ( Open { stuff | keyboardFocus = entryId firstEntry }
-                            , Browser.setScrollBottom (printListId id) 0
-                                |> Task.attempt (\_ -> NoOp)
-                            , Nothing
-                            )
-
-        ListScrolled ulScrollTop ulClientHeight ->
-            case state of
-                Closed ->
-                    ( state, Cmd.none, Nothing )
-
-                Open stuff ->
-                    ( Open
-                        { stuff
-                            | ulScrollTop = ulScrollTop
-                            , ulClientHeight = ulClientHeight
-                        }
-                    , Cmd.none
-                    , Nothing
-                    )
-
-        -- ENTRY
-        EntryMouseEntered newFocus ->
-            case state of
-                Closed ->
-                    ( state, Cmd.none, Nothing )
-
-                Open stuff ->
-                    ( Open { stuff | mouseFocus = Just newFocus }
-                    , Cmd.none
-                    , Nothing
-                    )
-
-        EntryMouseLeft ->
-            case state of
-                Closed ->
-                    ( state, Cmd.none, Nothing )
-
-                Open stuff ->
-                    ( Open { stuff | mouseFocus = Nothing }
-                    , Cmd.none
-                    , Nothing
-                    )
-
-        EntryClicked id entryId closeAfterMouseSelection a ->
-            case state of
-                Closed ->
-                    ( state, Cmd.none, Nothing )
-
-                Open stuff ->
-                    ( if closeAfterMouseSelection then
-                        Closed
-                      else
-                        Open { stuff | keyboardFocus = entryId a }
-                    , if closeAfterMouseSelection then
-                        focusButton id
-                      else
-                        Cmd.none
-                    , Just (entrySelected a)
-                    )
-
-        -- QUERY
-        ListKeyPressed id entryId entries entryToString code ->
-            ( state
-            , case state of
-                Closed ->
-                    Cmd.none
-
-                Open _ ->
-                    Time.now
-                        |> Task.perform (CurrentTimeReceived id entryId entries entryToString code)
-            , Nothing
-            )
-
-        CurrentTimeReceived id entryId entries entryToString code currentTime ->
-            case state of
-                Closed ->
-                    ( state, Cmd.none, Nothing )
-
-                Open stuff ->
-                    let
-                        ( newQuery, queryText ) =
-                            case stuff.query of
-                                NoQuery ->
-                                    ( Query currentTime code, code )
-
-                                Query _ query ->
-                                    ( Query currentTime (query ++ code), query ++ code )
-
-                        newKeyboardFocus =
-                            findWithQuery entryId stuff.keyboardFocus queryText entryToString entries
-                    in
-                    case newKeyboardFocus of
-                        Nothing ->
-                            ( Closed, Cmd.none, Nothing )
-
-                        Just newFocus ->
-                            ( Open
-                                { stuff
-                                    | query = newQuery
-                                    , keyboardFocus = newFocus
-                                }
-                            , Browser.scrollIntoView (printEntryId id newFocus)
-                                |> Task.attempt (\_ -> NoOp)
-                            , Nothing
-                            )
-
-        Tick currentTime ->
-            ( case state of
-                Closed ->
-                    state
-
-                Open stuff ->
-                    case stuff.query of
-                        NoQuery ->
-                            state
-
-                        Query time _ ->
-                            if Time.posixToMillis currentTime - Time.posixToMillis time > 1000 then
-                                Open
-                                    { stuff | query = NoQuery }
-                            else
-                                state
+            ( Open { stuff | preventBlur = True }
             , Cmd.none
             , Nothing
             )
 
+        ListMouseUp ->
+            ( Open { stuff | preventBlur = False }
+            , Cmd.none
+            , Nothing
+            )
 
-subscriptions : State a -> Sub (Msg a)
+        ListArrowUpPressed behaviour id uniqueId allEntries maybeScrollData ->
+            case findPrevious uniqueId stuff.keyboardFocus allEntries of
+                Just (Last lastEntry) ->
+                    if behaviour.jumpAtEnds then
+                        ( Open { stuff | keyboardFocus = uniqueId lastEntry }
+                        , scrollListToBottom id
+                        , Nothing
+                        )
+                    else
+                        ( Open stuff
+                        , Cmd.none
+                        , Nothing
+                        )
+
+                Just (Previous newIndex newEntry) ->
+                    ( Open { stuff | keyboardFocus = uniqueId newEntry }
+                    , case maybeScrollData of
+                        Nothing ->
+                            Browser.scrollIntoView (printEntryId id (uniqueId newEntry))
+                                |> Task.attempt (\_ -> NoOp)
+
+                        Just scrollData ->
+                            adjustScrollTop NoOp id scrollData
+                    , Nothing
+                    )
+
+                Nothing ->
+                    ( Closed
+                    , Cmd.none
+                    , Nothing
+                    )
+
+        ListArrowDownPressed behaviour id uniqueId allEntries maybeScrollData ->
+            case findNext uniqueId stuff.keyboardFocus allEntries of
+                Just (First firstEntry) ->
+                    if behaviour.jumpAtEnds then
+                        ( Open { stuff | keyboardFocus = uniqueId firstEntry }
+                        , scrollListToTop id
+                        , Nothing
+                        )
+                    else
+                        ( Open stuff
+                        , Cmd.none
+                        , Nothing
+                        )
+
+                Just (Next newIndex newEntry) ->
+                    ( Open { stuff | keyboardFocus = uniqueId newEntry }
+                    , case maybeScrollData of
+                        Nothing ->
+                            Browser.scrollIntoView (printEntryId id (uniqueId newEntry))
+                                |> Task.attempt (\_ -> NoOp)
+
+                        Just scrollData ->
+                            adjustScrollTop NoOp id scrollData
+                    , Nothing
+                    )
+
+                Nothing ->
+                    ( Closed
+                    , Cmd.none
+                    , Nothing
+                    )
+
+        ListEnterPressed id uniqueId allEntries ->
+            ( Closed
+            , focusButton id
+            , case find uniqueId stuff.keyboardFocus allEntries of
+                Nothing ->
+                    Nothing
+
+                Just ( _, a ) ->
+                    Just (entrySelected a)
+            )
+
+        ListEscapePressed id ->
+            ( Closed
+            , focusButton id
+            , Nothing
+            )
+
+        ListBlured ->
+            if stuff.preventBlur then
+                ( Open stuff
+                , Cmd.none
+                , Nothing
+                )
+            else
+                ( Closed
+                , Cmd.none
+                , Nothing
+                )
+
+        ListHomePressed id entryId allEntries ->
+            case List.head allEntries of
+                Nothing ->
+                    ( Closed
+                    , Cmd.none
+                    , Nothing
+                    )
+
+                Just firstEntry ->
+                    ( Open { stuff | keyboardFocus = entryId firstEntry }
+                    , scrollListToTop id
+                    , Nothing
+                    )
+
+        ListEndPressed id entryId allEntries ->
+            case List.head (List.reverse allEntries) of
+                Nothing ->
+                    ( Closed, Cmd.none, Nothing )
+
+                Just firstEntry ->
+                    ( Open { stuff | keyboardFocus = entryId firstEntry }
+                    , scrollListToBottom id
+                    , Nothing
+                    )
+
+        ListScrolled ulScrollTop ulClientHeight ->
+            ( Open
+                { stuff
+                    | ulScrollTop = ulScrollTop
+                    , ulClientHeight = ulClientHeight
+                }
+            , Cmd.none
+            , Nothing
+            )
+
+        -- ENTRY
+        EntryMouseEntered newFocus ->
+            ( Open { stuff | mouseFocus = Just newFocus }
+            , Cmd.none
+            , Nothing
+            )
+
+        EntryMouseLeft ->
+            ( Open { stuff | mouseFocus = Nothing }
+            , Cmd.none
+            , Nothing
+            )
+
+        EntryClicked id entryId closeAfterMouseSelection a ->
+            ( if closeAfterMouseSelection then
+                Closed
+              else
+                Open { stuff | keyboardFocus = entryId a }
+            , if closeAfterMouseSelection then
+                focusButton id
+              else
+                Cmd.none
+            , Just (entrySelected a)
+            )
+
+        -- QUERY
+        ListKeyPressed id entryId entries entryToString code ->
+            ( Open stuff
+            , Time.now
+                |> Task.perform (CurrentTimeReceived id entryId entries entryToString code)
+            , Nothing
+            )
+
+        CurrentTimeReceived id entryId entries entryToString code currentTime ->
+            let
+                ( newQuery, queryText ) =
+                    case stuff.query of
+                        NoQuery ->
+                            ( Query currentTime code, code )
+
+                        Query _ query ->
+                            ( Query currentTime (query ++ code), query ++ code )
+
+                newKeyboardFocus =
+                    findWithQuery entryId stuff.keyboardFocus queryText entryToString entries
+            in
+            case newKeyboardFocus of
+                Nothing ->
+                    ( Closed, Cmd.none, Nothing )
+
+                Just newFocus ->
+                    ( Open
+                        { stuff
+                            | query = newQuery
+                            , keyboardFocus = newFocus
+                        }
+                    , Browser.scrollIntoView (printEntryId id newFocus)
+                        |> Task.attempt (\_ -> NoOp)
+                    , Nothing
+                    )
+
+        Tick currentTime ->
+            ( case stuff.query of
+                NoQuery ->
+                    Open stuff
+
+                Query time _ ->
+                    if Time.posixToMillis currentTime - Time.posixToMillis time > 1000 then
+                        Open { stuff | query = NoQuery }
+                    else
+                        Open stuff
+            , Cmd.none
+            , Nothing
+            )
+
+        _ ->
+            ( Open stuff, Cmd.none, Nothing )
+
+
+subscriptions : State -> Sub (Msg a)
 subscriptions state =
     case state of
         Closed ->
@@ -866,12 +794,16 @@ subscriptions state =
                     Time.every 300 Tick
 
 
+
+-- SIMPLER UPDATES
+
+
 type OutMsg a
     = EntrySelected a
 
 
 {-| -}
-updateOptional : Msg a -> Maybe a -> State a -> ( State a, Maybe a, Cmd (Msg a) )
+updateOptional : Msg a -> Maybe a -> State -> ( State, Maybe a, Cmd (Msg a) )
 updateOptional msg selection state =
     let
         ( newState, cmd, maybeOutMsg ) =
@@ -886,7 +818,7 @@ updateOptional msg selection state =
 
 
 {-| -}
-updateRequired : Msg a -> a -> State a -> ( State a, a, Cmd (Msg a) )
+updateRequired : Msg a -> a -> State -> ( State, a, Cmd (Msg a) )
 updateRequired msg selection state =
     let
         ( newState, cmd, maybeOutMsg ) =
@@ -913,4 +845,16 @@ focusList id =
 focusButton : String -> Cmd (Msg a)
 focusButton id =
     Browser.focus (printButtonId id)
+        |> Task.attempt (\_ -> NoOp)
+
+
+scrollListToTop : String -> Cmd (Msg a)
+scrollListToTop id =
+    Browser.setScrollTop (printListId id) 0
+        |> Task.attempt (\_ -> NoOp)
+
+
+scrollListToBottom : String -> Cmd (Msg a)
+scrollListToBottom id =
+    Browser.setScrollBottom (printListId id) 0
         |> Task.attempt (\_ -> NoOp)

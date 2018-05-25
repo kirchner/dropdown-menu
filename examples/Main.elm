@@ -40,9 +40,9 @@ type alias Model =
     { selectedLicense : Maybe String
     , licenseMenu : DropdownMenu.Filterable.State String
     , selectedLocale : Maybe String
-    , localeMenu : DropdownMenu.Simple.State String
+    , localeMenu : DropdownMenu.Simple.State
     , selectedLocaleRequired : String
-    , localeRequiredMenu : DropdownMenu.Simple.State String
+    , localeRequiredMenu : DropdownMenu.Simple.State
     , selectedNumber : Maybe String
     , numberMenu : DropdownMenu.Filterable.State String
     }
