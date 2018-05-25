@@ -206,9 +206,23 @@ type alias Ids =
 {-| -}
 view : Config a -> Ids -> State -> List a -> Maybe a -> Html (Msg a)
 view config ids state allEntries selection =
+    let
+        data =
+            { behaviour = config.behaviour
+            , id = ids.id
+            , uniqueId = config.uniqueId
+            , allEntries = allEntries
+            }
+
+        buttonHtmlDetails =
+            config.view.button
+                { selection = selection
+                , open = True
+                }
+    in
     case state of
         Closed ->
-            viewClosed config ids allEntries selection
+            viewClosed data config.view.container buttonHtmlDetails ids.labelledBy selection
 
         Open { keyboardFocus, maybeMouseFocus, query } ->
             let
@@ -222,8 +236,8 @@ view config ids state allEntries selection =
             in
             Html.div
                 (appendAttributes NoOp config.view.container [])
-                [ viewButton config ids allEntries selection True
-                , viewList config ids maybeQuery keyboardFocus maybeMouseFocus selection allEntries <|
+                [ viewButton data buttonHtmlDetails ids.labelledBy selection True
+                , viewList data config ids maybeQuery keyboardFocus maybeMouseFocus selection <|
                     { spaceAboveFirst = 0
                     , droppedAboveFirst = 0
                     , spaceAboveSecond = 0
@@ -242,9 +256,23 @@ view config ids state allEntries selection =
 {-| -}
 viewLazy : (a -> Float) -> Config a -> Ids -> State -> List a -> Maybe a -> Html (Msg a)
 viewLazy entryHeight config ids state allEntries selection =
+    let
+        data =
+            { behaviour = config.behaviour
+            , id = ids.id
+            , uniqueId = config.uniqueId
+            , allEntries = allEntries
+            }
+
+        buttonHtmlDetails =
+            config.view.button
+                { selection = selection
+                , open = True
+                }
+    in
     case state of
         Closed ->
-            viewClosed config ids allEntries selection
+            viewClosed data config.view.container buttonHtmlDetails ids.labelledBy selection
 
         Open { keyboardFocus, maybeMouseFocus, ulScrollTop, ulClientHeight, query } ->
             let
@@ -262,40 +290,33 @@ viewLazy entryHeight config ids state allEntries selection =
             in
             Html.div
                 (appendAttributes NoOp config.view.container [])
-                [ viewButton config ids allEntries selection True
+                [ viewButton data buttonHtmlDetails ids.labelledBy selection True
                 , allEntries
                     |> computeRenderedEntries entryHeight ulScrollTop ulClientHeight maybeFocusIndex
-                    |> viewList config ids maybeQuery keyboardFocus maybeMouseFocus selection allEntries
+                    |> viewList data config ids maybeQuery keyboardFocus maybeMouseFocus selection
                 ]
 
 
-viewClosed : Config a -> Ids -> List a -> Maybe a -> Html (Msg a)
-viewClosed config ids allEntries selection =
+viewClosed : Data a -> HtmlAttributes -> HtmlDetails -> String -> Maybe a -> Html (Msg a)
+viewClosed data containerHtmlAttributes buttonHtmlDetails labelledBy selection =
     Html.div
-        (appendAttributes NoOp config.view.container [])
-        [ viewButton config ids allEntries selection False ]
+        (appendAttributes NoOp containerHtmlAttributes [])
+        [ viewButton data buttonHtmlDetails labelledBy selection False ]
 
 
-viewButton : Config a -> Ids -> List a -> Maybe a -> Bool -> Html (Msg a)
-viewButton config ids allEntries selection open =
-    let
-        { attributes, children } =
-            config.view.button
-                { selection = selection
-                , open = open
-                }
-    in
+viewButton : Data a -> HtmlDetails -> String -> Maybe a -> Bool -> Html (Msg a)
+viewButton ({ id } as data) { attributes, children } labelledBy selection open =
     Html.button
-        ([ Attributes.id (printButtonId ids.id)
+        ([ Attributes.id (printButtonId id)
          , Attributes.attribute "aria-haspopup" "listbox"
          , Attributes.attribute "aria-labelledby"
-            (printButtonId ids.id ++ " " ++ ids.labelledBy)
+            (printButtonId id ++ " " ++ labelledBy)
          , Attributes.style "position" "relative"
          , Attributes.tabindex 0
-         , Events.onClick (ButtonClicked config.behaviour ids.id config.uniqueId allEntries)
+         , Events.onClick (ButtonClicked data)
          , Events.on "keydown"
             (Decode.field "key" Decode.string
-                |> Decode.andThen (buttonKeyDown config.behaviour ids.id config.uniqueId allEntries)
+                |> Decode.andThen (buttonKeyDown data)
             )
          ]
             |> setAriaExpanded open
@@ -305,16 +326,16 @@ viewButton config ids allEntries selection open =
 
 
 viewList :
-    Config a
+    Data a
+    -> Config a
     -> Ids
     -> Maybe String
     -> String
     -> Maybe String
     -> Maybe a
-    -> List a
     -> RenderedEntries a
     -> Html (Msg a)
-viewList config ids maybeQuery keyboardFocus maybeMouseFocus selection allEntries renderedEntries =
+viewList data config ids maybeQuery keyboardFocus maybeMouseFocus selection renderedEntries =
     Html.ul
         ([ Attributes.id (printListId ids.id)
          , Attributes.attribute "role" "listbox"
@@ -326,7 +347,7 @@ viewList config ids maybeQuery keyboardFocus maybeMouseFocus selection allEntrie
          , Events.preventDefaultOn "keydown"
             (Decode.field "key" Decode.string
                 |> Decode.andThen
-                    (listKeydown config ids keyboardFocus allEntries renderedEntries.visibleEntries)
+                    (listKeydown data keyboardFocus renderedEntries.visibleEntries)
             )
          , Events.on "blur" (Decode.succeed ListBlured)
          , Events.on "scroll" <|
@@ -334,8 +355,8 @@ viewList config ids maybeQuery keyboardFocus maybeMouseFocus selection allEntrie
                 (Decode.at [ "target", "scrollTop" ] Decode.float)
                 (Decode.at [ "target", "clientHeight" ] Decode.float)
          ]
-            |> handleKeypress config ids allEntries
-            |> setAriaActivedescendant ids.id config.uniqueId (Just keyboardFocus) allEntries
+            |> handleKeypress data
+            |> setAriaActivedescendant ids.id config.uniqueId (Just keyboardFocus) data.allEntries
             |> appendAttributes NoOp config.view.ul
         )
         (viewEntries
@@ -359,30 +380,26 @@ viewList config ids maybeQuery keyboardFocus maybeMouseFocus selection allEntrie
         )
 
 
-buttonKeyDown : Behaviour a -> String -> (a -> String) -> List a -> String -> Decoder (Msg a)
-buttonKeyDown behaviour id uniqueId allEntries code =
+buttonKeyDown : Data a -> String -> Decoder (Msg a)
+buttonKeyDown data code =
     case code of
         "ArrowUp" ->
-            Decode.succeed <|
-                ButtonArrowUpPressed behaviour id uniqueId allEntries
+            Decode.succeed (ButtonArrowUpPressed data)
 
         "ArrowDown" ->
-            Decode.succeed <|
-                ButtonArrowDownPressed behaviour id uniqueId allEntries
+            Decode.succeed (ButtonArrowDownPressed data)
 
         _ ->
             Decode.fail "not handling that key here"
 
 
 listKeydown :
-    Config a
-    -> Ids
+    Data a
     -> String
-    -> List a
     -> List a
     -> String
     -> Decoder ( Msg a, Bool )
-listKeydown { uniqueId, behaviour } { id } keyboardFocus allEntries visibleEntries code =
+listKeydown ({ id, uniqueId, behaviour, allEntries } as data) keyboardFocus visibleEntries code =
     case code of
         "ArrowUp" ->
             Decode.oneOf
@@ -392,7 +409,7 @@ listKeydown { uniqueId, behaviour } { id } keyboardFocus allEntries visibleEntri
                     |> Maybe.withDefault (Decode.succeed Nothing)
                 , Decode.succeed Nothing
                 ]
-                |> Decode.map (ListArrowUpPressed behaviour id uniqueId allEntries)
+                |> Decode.map (ListArrowUpPressed data)
                 |> preventDefault
 
         "ArrowDown" ->
@@ -403,7 +420,7 @@ listKeydown { uniqueId, behaviour } { id } keyboardFocus allEntries visibleEntri
                     |> Maybe.withDefault (Decode.succeed Nothing)
                 , Decode.succeed Nothing
                 ]
-                |> Decode.map (ListArrowDownPressed behaviour id uniqueId allEntries)
+                |> Decode.map (ListArrowDownPressed data)
                 |> preventDefault
 
         "Enter" ->
@@ -423,12 +440,10 @@ listKeydown { uniqueId, behaviour } { id } keyboardFocus allEntries visibleEntri
 
 
 handleKeypress :
-    Config a
-    -> Ids
-    -> List a
+    Data a
     -> List (Html.Attribute (Msg a))
     -> List (Html.Attribute (Msg a))
-handleKeypress { uniqueId, behaviour } ids allEntries attrs =
+handleKeypress ({ uniqueId, behaviour, id, allEntries } as data) attrs =
     Events.on "keypress"
         (Decode.field "key" Decode.string
             |> Decode.andThen
@@ -436,15 +451,13 @@ handleKeypress { uniqueId, behaviour } ids allEntries attrs =
                     case code of
                         "Home" ->
                             if behaviour.handleHomeAndEnd then
-                                Decode.succeed <|
-                                    ListHomePressed behaviour ids.id uniqueId allEntries
+                                Decode.succeed (ListHomePressed data)
                             else
                                 Decode.fail "not handling that key here"
 
                         "End" ->
                             if behaviour.handleHomeAndEnd then
-                                Decode.succeed <|
-                                    ListEndPressed behaviour ids.id uniqueId allEntries
+                                Decode.succeed (ListEndPressed data)
                             else
                                 Decode.fail "not handling that key here"
 
@@ -455,14 +468,7 @@ handleKeypress { uniqueId, behaviour } ids allEntries attrs =
 
                                 TypeAhead timeout matchesQuery ->
                                     if String.length code == 1 then
-                                        ListKeyPressed
-                                            behaviour
-                                            ids.id
-                                            uniqueId
-                                            allEntries
-                                            timeout
-                                            matchesQuery
-                                            code
+                                        ListKeyPressed data timeout matchesQuery code
                                             |> Decode.succeed
                                     else
                                         Decode.fail "not handling that key here"
@@ -505,28 +511,36 @@ printButtonId id =
 type Msg a
     = NoOp
       -- BUTTON
-    | ButtonClicked (Behaviour a) String (a -> String) (List a)
-    | ButtonArrowUpPressed (Behaviour a) String (a -> String) (List a)
-    | ButtonArrowDownPressed (Behaviour a) String (a -> String) (List a)
+    | ButtonClicked (Data a)
+    | ButtonArrowUpPressed (Data a)
+    | ButtonArrowDownPressed (Data a)
       -- LIST
     | ListMouseDown
     | ListMouseUp
-    | ListArrowUpPressed (Behaviour a) String (a -> String) (List a) (Maybe ScrollData)
-    | ListArrowDownPressed (Behaviour a) String (a -> String) (List a) (Maybe ScrollData)
+    | ListArrowUpPressed (Data a) (Maybe ScrollData)
+    | ListArrowDownPressed (Data a) (Maybe ScrollData)
     | ListEnterPressed String (a -> String) (List a)
     | ListEscapePressed String
     | ListBlured
-    | ListHomePressed (Behaviour a) String (a -> String) (List a)
-    | ListEndPressed (Behaviour a) String (a -> String) (List a)
+    | ListHomePressed (Data a)
+    | ListEndPressed (Data a)
     | ListScrolled Float Float
       -- ENTRY
     | EntryMouseEntered (Behaviour a) String
     | EntryMouseLeft (Behaviour a)
     | EntryClicked (Behaviour a) String (a -> String) Bool a
       -- QUERY
-    | ListKeyPressed (Behaviour a) String (a -> String) (List a) Int (String -> a -> Bool) String
-    | CurrentTimeReceived (Behaviour a) String (a -> String) (List a) Int (String -> a -> Bool) String Time.Posix
+    | ListKeyPressed (Data a) Int (String -> a -> Bool) String
+    | CurrentTimeReceived (Data a) Int (String -> a -> Bool) String Time.Posix
     | Tick Time.Posix
+
+
+type alias Data a =
+    { behaviour : Behaviour a
+    , id : String
+    , uniqueId : a -> String
+    , allEntries : List a
+    }
 
 
 {-| -}
@@ -547,7 +561,7 @@ updateClosed entrySelected msg =
             ( Closed, Cmd.none, Nothing )
 
         -- BUTTON
-        ButtonClicked behaviour id uniqueId allEntries ->
+        ButtonClicked { behaviour, id, uniqueId, allEntries } ->
             case List.head allEntries of
                 Nothing ->
                     ( Closed, Cmd.none, Nothing )
@@ -575,7 +589,7 @@ updateClosed entrySelected msg =
                         Nothing
                     )
 
-        ButtonArrowUpPressed behaviour id uniqueId allEntries ->
+        ButtonArrowUpPressed { behaviour, id, uniqueId, allEntries } ->
             case List.head (List.reverse allEntries) of
                 Nothing ->
                     ( Closed, Cmd.none, Nothing )
@@ -603,7 +617,7 @@ updateClosed entrySelected msg =
                         Nothing
                     )
 
-        ButtonArrowDownPressed behaviour id uniqueId allEntries ->
+        ButtonArrowDownPressed { behaviour, id, uniqueId, allEntries } ->
             case List.head allEntries of
                 Nothing ->
                     ( Closed, Cmd.none, Nothing )
@@ -651,7 +665,7 @@ updateOpen entrySelected stuff msg =
             , Nothing
             )
 
-        ListArrowUpPressed behaviour id uniqueId allEntries maybeScrollData ->
+        ListArrowUpPressed { behaviour, id, uniqueId, allEntries } maybeScrollData ->
             case findPrevious uniqueId stuff.keyboardFocus allEntries of
                 Just (Last lastEntry) ->
                     if behaviour.jumpAtEnds then
@@ -693,7 +707,7 @@ updateOpen entrySelected stuff msg =
                     , Nothing
                     )
 
-        ListArrowDownPressed behaviour id uniqueId allEntries maybeScrollData ->
+        ListArrowDownPressed { behaviour, id, uniqueId, allEntries } maybeScrollData ->
             case findNext uniqueId stuff.keyboardFocus allEntries of
                 Just (First firstEntry) ->
                     if behaviour.jumpAtEnds then
@@ -764,7 +778,7 @@ updateOpen entrySelected stuff msg =
                 , Nothing
                 )
 
-        ListHomePressed behaviour id uniqueId allEntries ->
+        ListHomePressed { behaviour, id, uniqueId, allEntries } ->
             case List.head allEntries of
                 Nothing ->
                     ( Closed
@@ -780,7 +794,7 @@ updateOpen entrySelected stuff msg =
                     , Nothing
                     )
 
-        ListEndPressed behaviour id uniqueId allEntries ->
+        ListEndPressed { behaviour, id, uniqueId, allEntries } ->
             case List.head (List.reverse allEntries) of
                 Nothing ->
                     ( Closed, Cmd.none, Nothing )
@@ -846,15 +860,15 @@ updateOpen entrySelected stuff msg =
             )
 
         -- QUERY
-        ListKeyPressed behaviour id uniqueId entries timeout matchesQuery code ->
+        ListKeyPressed data timeout matchesQuery code ->
             ( Open stuff
             , Time.now
                 |> Task.perform
-                    (CurrentTimeReceived behaviour id uniqueId entries timeout matchesQuery code)
+                    (CurrentTimeReceived data timeout matchesQuery code)
             , Nothing
             )
 
-        CurrentTimeReceived behaviour id uniqueId allEntries timeout matchesQuery code currentTime ->
+        CurrentTimeReceived { behaviour, id, uniqueId, allEntries } timeout matchesQuery code currentTime ->
             let
                 ( newQuery, queryText ) =
                     case stuff.query of
