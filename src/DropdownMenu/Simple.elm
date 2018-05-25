@@ -123,7 +123,7 @@ type alias Config a =
 type alias Behaviour a =
     { jumpAtEnds : Bool
     , closeAfterMouseSelection : Bool
-    , selectionFollowsFocus : Bool -- TODO handle this
+    , selectionFollowsFocus : Bool
     , handleHomeAndEnd : Bool
     , handleTypeAhead : Maybe (a -> String)
     }
@@ -243,10 +243,10 @@ viewButton config ids allEntries selection open =
             (printButtonId ids.id ++ " " ++ ids.labelledBy)
          , Attributes.style "position" "relative"
          , Attributes.tabindex 0
-         , Events.onClick (ButtonClicked ids.id config.uniqueId allEntries)
+         , Events.onClick (ButtonClicked config.behaviour ids.id config.uniqueId allEntries)
          , Events.on "keydown"
             (Decode.field "key" Decode.string
-                |> Decode.andThen (buttonKeyDown ids.id config.uniqueId allEntries)
+                |> Decode.andThen (buttonKeyDown config.behaviour ids.id config.uniqueId allEntries)
             )
          ]
             |> setAriaExpanded open
@@ -308,16 +308,16 @@ viewList config ids keyboardFocus maybeMouseFocus selection allEntries renderedE
         )
 
 
-buttonKeyDown : String -> (a -> String) -> List a -> String -> Decoder (Msg a)
-buttonKeyDown id entryId allEntries code =
+buttonKeyDown : Behaviour a -> String -> (a -> String) -> List a -> String -> Decoder (Msg a)
+buttonKeyDown behaviour id entryId allEntries code =
     case code of
         "ArrowUp" ->
             Decode.succeed <|
-                ButtonArrowUpPressed id entryId allEntries
+                ButtonArrowUpPressed behaviour id entryId allEntries
 
         "ArrowDown" ->
             Decode.succeed <|
-                ButtonArrowDownPressed id entryId allEntries
+                ButtonArrowDownPressed behaviour id entryId allEntries
 
         _ ->
             Decode.fail "not handling that key here"
@@ -447,9 +447,9 @@ printButtonId id =
 type Msg a
     = NoOp
       -- BUTTON
-    | ButtonClicked String (a -> String) (List a)
-    | ButtonArrowUpPressed String (a -> String) (List a)
-    | ButtonArrowDownPressed String (a -> String) (List a)
+    | ButtonClicked (Behaviour a) String (a -> String) (List a)
+    | ButtonArrowUpPressed (Behaviour a) String (a -> String) (List a)
+    | ButtonArrowDownPressed (Behaviour a) String (a -> String) (List a)
       -- LIST
     | ListMouseDown
     | ListMouseUp
@@ -476,20 +476,20 @@ update : (a -> outMsg) -> State -> Msg a -> ( State, Cmd (Msg a), Maybe outMsg )
 update entrySelected state msg =
     case state of
         Closed ->
-            updateClosed msg
+            updateClosed entrySelected msg
 
         Open stuff ->
             updateOpen entrySelected stuff msg
 
 
-updateClosed : Msg a -> ( State, Cmd (Msg a), Maybe outMsg )
-updateClosed msg =
+updateClosed : (a -> outMsg) -> Msg a -> ( State, Cmd (Msg a), Maybe outMsg )
+updateClosed entrySelected msg =
     case msg of
         NoOp ->
             ( Closed, Cmd.none, Nothing )
 
         -- BUTTON
-        ButtonClicked id entryId allEntries ->
+        ButtonClicked behaviour id entryId allEntries ->
             case List.head allEntries of
                 Nothing ->
                     ( Closed, Cmd.none, Nothing )
@@ -507,10 +507,13 @@ updateClosed msg =
                         [ scrollListToTop id
                         , focusList id
                         ]
-                    , Nothing
+                    , if behaviour.selectionFollowsFocus then
+                        Just (entrySelected firstEntry)
+                      else
+                        Nothing
                     )
 
-        ButtonArrowUpPressed id entryId allEntries ->
+        ButtonArrowUpPressed behaviour id entryId allEntries ->
             case List.head (List.reverse allEntries) of
                 Nothing ->
                     ( Closed, Cmd.none, Nothing )
@@ -528,10 +531,13 @@ updateClosed msg =
                         [ scrollListToBottom id
                         , focusList id
                         ]
-                    , Nothing
+                    , if behaviour.selectionFollowsFocus then
+                        Just (entrySelected lastEntry)
+                      else
+                        Nothing
                     )
 
-        ButtonArrowDownPressed id entryId allEntries ->
+        ButtonArrowDownPressed behaviour id entryId allEntries ->
             case List.head allEntries of
                 Nothing ->
                     ( Closed, Cmd.none, Nothing )
@@ -549,7 +555,10 @@ updateClosed msg =
                         [ scrollListToTop id
                         , focusList id
                         ]
-                    , Nothing
+                    , if behaviour.selectionFollowsFocus then
+                        Just (entrySelected firstEntry)
+                      else
+                        Nothing
                     )
 
         _ ->
@@ -578,7 +587,10 @@ updateOpen entrySelected stuff msg =
                     if behaviour.jumpAtEnds then
                         ( Open { stuff | keyboardFocus = uniqueId lastEntry }
                         , scrollListToBottom id
-                        , Nothing
+                        , if behaviour.selectionFollowsFocus then
+                            Just (entrySelected lastEntry)
+                          else
+                            Nothing
                         )
                     else
                         ( Open stuff
@@ -595,7 +607,10 @@ updateOpen entrySelected stuff msg =
 
                         Just scrollData ->
                             adjustScrollTop NoOp id scrollData
-                    , Nothing
+                    , if behaviour.selectionFollowsFocus then
+                        Just (entrySelected newEntry)
+                      else
+                        Nothing
                     )
 
                 Nothing ->
@@ -610,7 +625,10 @@ updateOpen entrySelected stuff msg =
                     if behaviour.jumpAtEnds then
                         ( Open { stuff | keyboardFocus = uniqueId firstEntry }
                         , scrollListToTop id
-                        , Nothing
+                        , if behaviour.selectionFollowsFocus then
+                            Just (entrySelected firstEntry)
+                          else
+                            Nothing
                         )
                     else
                         ( Open stuff
@@ -627,7 +645,10 @@ updateOpen entrySelected stuff msg =
 
                         Just scrollData ->
                             adjustScrollTop NoOp id scrollData
-                    , Nothing
+                    , if behaviour.selectionFollowsFocus then
+                        Just (entrySelected newEntry)
+                      else
+                        Nothing
                     )
 
                 Nothing ->
