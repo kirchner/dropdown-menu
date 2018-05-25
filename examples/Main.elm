@@ -204,7 +204,7 @@ viewLocales selectedLocale localeMenu =
             [ Html.text "Locale" ]
         , selectedLocale
             |> DropdownMenu.Simple.viewLazy (\_ -> 42)
-                optionalConfig
+                simpleConfig
                 { id = "locale"
                 , labelledBy = "locale__label"
                 }
@@ -221,7 +221,7 @@ viewLocalesRequired selectedLocale localeMenu =
             [ Html.text "Locale" ]
         , Just selectedLocale
             |> DropdownMenu.Simple.viewLazy (\_ -> 42)
-                optionalConfig
+                simpleConfig
                 { id = "locale-required"
                 , labelledBy = "locale-required__label"
                 }
@@ -265,7 +265,7 @@ filterableConfig =
             \{ selection, open } -> [ Attributes.class "textfield" ]
         , ul = [ Attributes.class "list" ]
         , li =
-            \{ selected, keyboardFocused, mouseFocused } name ->
+            \{ selected, keyboardFocused, mouseFocused, maybeQuery } name ->
                 { attributes =
                     [ Attributes.class "entry"
                     , Attributes.classList
@@ -273,20 +273,24 @@ filterableConfig =
                         , ( "entry--mouse-focused", mouseFocused )
                         ]
                     ]
-                , children = [ Html.text name ]
+                , children = liChildren maybeQuery name
                 }
         }
 
 
-optionalConfig : DropdownMenu.Simple.Config String
-optionalConfig =
+simpleConfig : DropdownMenu.Simple.Config String
+simpleConfig =
     { uniqueId = identity
     , behaviour =
         { jumpAtEnds = True
         , closeAfterMouseSelection = False
-        , selectionFollowsFocus = False
+        , selectionFollowsFocus = True
         , handleHomeAndEnd = True
-        , handleTypeAhead = Just identity
+        , typeAhead =
+            DropdownMenu.Simple.typeAhead 200 <|
+                \query value ->
+                    String.toLower value
+                        |> String.contains (String.toLower query)
         }
     , view =
         { container = [ Attributes.style "width" "500px" ]
@@ -301,7 +305,7 @@ optionalConfig =
                 }
         , ul = [ Attributes.class "list" ]
         , li =
-            \{ selected, keyboardFocused, mouseFocused } name ->
+            \{ selected, keyboardFocused, mouseFocused, maybeQuery } name ->
                 { attributes =
                     [ Attributes.class "entry"
                     , Attributes.classList
@@ -309,10 +313,44 @@ optionalConfig =
                         , ( "entry--mouse-focused", mouseFocused )
                         ]
                     ]
-                , children = [ Html.text name ]
+                , children = liChildren maybeQuery name
                 }
         }
     }
+
+
+liChildren : Maybe String -> String -> List (Html Never)
+liChildren maybeQuery name =
+    case maybeQuery of
+        Nothing ->
+            [ Html.text name ]
+
+        Just query ->
+            let
+                queryLength =
+                    String.length query
+            in
+            String.toLower name
+                |> String.split (String.toLower query)
+                |> List.map String.length
+                |> List.foldl
+                    (\count ( remainingName, nodes ) ->
+                        case remainingName of
+                            "" ->
+                                ( remainingName, nodes )
+
+                            _ ->
+                                ( String.dropLeft (count + queryLength) remainingName
+                                , Html.span
+                                    [ Attributes.style "color" "#0091eb" ]
+                                    [ Html.text (String.left queryLength (String.dropLeft count remainingName)) ]
+                                    :: Html.text (String.left count remainingName)
+                                    :: nodes
+                                )
+                    )
+                    ( name, [] )
+                |> Tuple.second
+                |> List.reverse
 
 
 

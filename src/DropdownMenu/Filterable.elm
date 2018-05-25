@@ -141,6 +141,7 @@ type alias ConfigData a =
         { selected : Bool
         , keyboardFocused : Bool
         , mouseFocused : Bool
+        , maybeQuery : Maybe String
         }
         -> a
         -> HtmlDetails
@@ -345,6 +346,7 @@ viewHelp (Config cfg) ids (State stuff) selection allEntries renderedEntries =
                 }
                 cfg
                 ids.id
+                (Just stuff.query)
                 stuff.keyboardFocus
                 stuff.mouseFocus
                 selection

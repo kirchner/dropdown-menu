@@ -7,9 +7,13 @@ module DropdownMenu.Simple
         , Ids
         , Msg
         , State
+        , TypeAhead
         , View
         , closed
+        , noTypeAhead
+        , simpleTypeAhead
         , subscriptions
+        , typeAhead
         , update
         , updateOptional
         , updateRequired
@@ -57,8 +61,7 @@ import Internal.Shared
         , find
         , findNext
         , findPrevious
-        , findWithQuery
-        , findWithQueryFromTop
+        , findWith
         , indexOf
         , last
         , preventDefault
@@ -98,7 +101,7 @@ type alias OpenData =
 
 type Query
     = NoQuery
-    | Query Time.Posix String
+    | Query Int Time.Posix String
 
 
 {-| -}
@@ -125,8 +128,35 @@ type alias Behaviour a =
     , closeAfterMouseSelection : Bool
     , selectionFollowsFocus : Bool
     , handleHomeAndEnd : Bool
-    , handleTypeAhead : Maybe (a -> String)
+    , typeAhead : TypeAhead a
     }
+
+
+{-| -}
+type TypeAhead a
+    = NoTypeAhead
+    | TypeAhead Int (String -> a -> Bool)
+
+
+{-| -}
+noTypeAhead : TypeAhead a
+noTypeAhead =
+    NoTypeAhead
+
+
+{-| -}
+simpleTypeAhead : Int -> (a -> String) -> TypeAhead a
+simpleTypeAhead timeout entryToString =
+    TypeAhead timeout <|
+        \query entry ->
+            String.toLower (entryToString entry)
+                |> String.startsWith (String.toLower query)
+
+
+{-| -}
+typeAhead : Int -> (String -> a -> Bool) -> TypeAhead a
+typeAhead =
+    TypeAhead
 
 
 {-| -}
@@ -142,6 +172,7 @@ type alias View a =
         { selected : Bool
         , keyboardFocused : Bool
         , mouseFocused : Bool
+        , maybeQuery : Maybe String
         }
         -> a
         -> HtmlDetails
@@ -178,11 +209,20 @@ view config ids state allEntries selection =
         Closed ->
             viewClosed config ids allEntries selection
 
-        Open { keyboardFocus, mouseFocus } ->
+        Open { keyboardFocus, mouseFocus, query } ->
+            let
+                maybeQuery =
+                    case query of
+                        NoQuery ->
+                            Nothing
+
+                        Query _ _ actualQuery ->
+                            Just actualQuery
+            in
             Html.div
                 (appendAttributes NoOp config.view.container [])
                 [ viewButton config ids allEntries selection True
-                , viewList config ids keyboardFocus mouseFocus selection allEntries <|
+                , viewList config ids maybeQuery keyboardFocus mouseFocus selection allEntries <|
                     { spaceAboveFirst = 0
                     , droppedAboveFirst = 0
                     , spaceAboveSecond = 0
@@ -205,18 +245,26 @@ viewLazy entryHeight config ids state allEntries selection =
         Closed ->
             viewClosed config ids allEntries selection
 
-        Open { keyboardFocus, mouseFocus, ulScrollTop, ulClientHeight } ->
+        Open { keyboardFocus, mouseFocus, ulScrollTop, ulClientHeight, query } ->
             let
                 maybeFocusIndex =
                     find config.uniqueId keyboardFocus allEntries
                         |> Maybe.map Tuple.first
+
+                maybeQuery =
+                    case query of
+                        NoQuery ->
+                            Nothing
+
+                        Query _ _ actualQuery ->
+                            Just actualQuery
             in
             Html.div
                 (appendAttributes NoOp config.view.container [])
                 [ viewButton config ids allEntries selection True
                 , allEntries
                     |> computeRenderedEntries entryHeight ulScrollTop ulClientHeight maybeFocusIndex
-                    |> viewList config ids keyboardFocus mouseFocus selection allEntries
+                    |> viewList config ids maybeQuery keyboardFocus mouseFocus selection allEntries
                 ]
 
 
@@ -258,13 +306,14 @@ viewButton config ids allEntries selection open =
 viewList :
     Config a
     -> Ids
+    -> Maybe String
     -> String
     -> Maybe String
     -> Maybe a
     -> List a
     -> RenderedEntries a
     -> Html (Msg a)
-viewList config ids keyboardFocus maybeMouseFocus selection allEntries renderedEntries =
+viewList config ids maybeQuery keyboardFocus maybeMouseFocus selection allEntries renderedEntries =
     Html.ul
         ([ Attributes.id (printListId ids.id)
          , Attributes.attribute "role" "listbox"
@@ -301,6 +350,7 @@ viewList config ids keyboardFocus maybeMouseFocus selection allEntries renderedE
             , entryId = config.uniqueId
             }
             ids.id
+            maybeQuery
             (Just keyboardFocus)
             maybeMouseFocus
             selection
@@ -398,13 +448,19 @@ handleKeypress { uniqueId, behaviour } ids allEntries attrs =
                                 Decode.fail "not handling that key here"
 
                         _ ->
-                            case behaviour.handleTypeAhead of
-                                Nothing ->
+                            case behaviour.typeAhead of
+                                NoTypeAhead ->
                                     Decode.fail "not handling that key here"
 
-                                Just entryToString ->
+                                TypeAhead timeout matchesQuery ->
                                     if String.length code == 1 then
-                                        ListKeyPressed ids.id uniqueId allEntries entryToString code
+                                        ListKeyPressed
+                                            ids.id
+                                            uniqueId
+                                            allEntries
+                                            timeout
+                                            matchesQuery
+                                            code
                                             |> Decode.succeed
                                     else
                                         Decode.fail "not handling that key here"
@@ -466,8 +522,8 @@ type Msg a
     | EntryMouseLeft
     | EntryClicked String (a -> String) Bool a
       -- QUERY
-    | ListKeyPressed String (a -> String) (List a) (a -> String) String
-    | CurrentTimeReceived String (a -> String) (List a) (a -> String) String Time.Posix
+    | ListKeyPressed String (a -> String) (List a) Int (String -> a -> Bool) String
+    | CurrentTimeReceived String (a -> String) (List a) Int (String -> a -> Bool) String Time.Posix
     | Tick Time.Posix
 
 
@@ -585,7 +641,11 @@ updateOpen entrySelected stuff msg =
             case findPrevious uniqueId stuff.keyboardFocus allEntries of
                 Just (Last lastEntry) ->
                     if behaviour.jumpAtEnds then
-                        ( Open { stuff | keyboardFocus = uniqueId lastEntry }
+                        ( Open
+                            { stuff
+                                | keyboardFocus = uniqueId lastEntry
+                                , query = NoQuery
+                            }
                         , scrollListToBottom id
                         , if behaviour.selectionFollowsFocus then
                             Just (entrySelected lastEntry)
@@ -593,13 +653,17 @@ updateOpen entrySelected stuff msg =
                             Nothing
                         )
                     else
-                        ( Open stuff
+                        ( Open { stuff | query = NoQuery }
                         , Cmd.none
                         , Nothing
                         )
 
                 Just (Previous newIndex newEntry) ->
-                    ( Open { stuff | keyboardFocus = uniqueId newEntry }
+                    ( Open
+                        { stuff
+                            | keyboardFocus = uniqueId newEntry
+                            , query = NoQuery
+                        }
                     , case maybeScrollData of
                         Nothing ->
                             Browser.scrollIntoView (printEntryId id (uniqueId newEntry))
@@ -623,7 +687,11 @@ updateOpen entrySelected stuff msg =
             case findNext uniqueId stuff.keyboardFocus allEntries of
                 Just (First firstEntry) ->
                     if behaviour.jumpAtEnds then
-                        ( Open { stuff | keyboardFocus = uniqueId firstEntry }
+                        ( Open
+                            { stuff
+                                | keyboardFocus = uniqueId firstEntry
+                                , query = NoQuery
+                            }
                         , scrollListToTop id
                         , if behaviour.selectionFollowsFocus then
                             Just (entrySelected firstEntry)
@@ -631,13 +699,17 @@ updateOpen entrySelected stuff msg =
                             Nothing
                         )
                     else
-                        ( Open stuff
+                        ( Open { stuff | query = NoQuery }
                         , Cmd.none
                         , Nothing
                         )
 
                 Just (Next newIndex newEntry) ->
-                    ( Open { stuff | keyboardFocus = uniqueId newEntry }
+                    ( Open
+                        { stuff
+                            | keyboardFocus = uniqueId newEntry
+                            , query = NoQuery
+                        }
                     , case maybeScrollData of
                         Nothing ->
                             Browser.scrollIntoView (printEntryId id (uniqueId newEntry))
@@ -695,7 +767,11 @@ updateOpen entrySelected stuff msg =
                     )
 
                 Just firstEntry ->
-                    ( Open { stuff | keyboardFocus = entryId firstEntry }
+                    ( Open
+                        { stuff
+                            | keyboardFocus = entryId firstEntry
+                            , query = NoQuery
+                        }
                     , scrollListToTop id
                     , Nothing
                     )
@@ -706,7 +782,11 @@ updateOpen entrySelected stuff msg =
                     ( Closed, Cmd.none, Nothing )
 
                 Just firstEntry ->
-                    ( Open { stuff | keyboardFocus = entryId firstEntry }
+                    ( Open
+                        { stuff
+                            | keyboardFocus = entryId firstEntry
+                            , query = NoQuery
+                        }
                     , scrollListToBottom id
                     , Nothing
                     )
@@ -738,7 +818,11 @@ updateOpen entrySelected stuff msg =
             ( if closeAfterMouseSelection then
                 Closed
               else
-                Open { stuff | keyboardFocus = entryId a }
+                Open
+                    { stuff
+                        | keyboardFocus = entryId a
+                        , query = NoQuery
+                    }
             , if closeAfterMouseSelection then
                 focusButton id
               else
@@ -747,25 +831,25 @@ updateOpen entrySelected stuff msg =
             )
 
         -- QUERY
-        ListKeyPressed id entryId entries entryToString code ->
+        ListKeyPressed id entryId entries timeout matchesQuery code ->
             ( Open stuff
             , Time.now
-                |> Task.perform (CurrentTimeReceived id entryId entries entryToString code)
+                |> Task.perform (CurrentTimeReceived id entryId entries timeout matchesQuery code)
             , Nothing
             )
 
-        CurrentTimeReceived id entryId entries entryToString code currentTime ->
+        CurrentTimeReceived id uniqueId allEntries timeout matchesQuery code currentTime ->
             let
                 ( newQuery, queryText ) =
                     case stuff.query of
                         NoQuery ->
-                            ( Query currentTime code, code )
+                            ( Query timeout currentTime code, code )
 
-                        Query _ query ->
-                            ( Query currentTime (query ++ code), query ++ code )
+                        Query _ _ query ->
+                            ( Query timeout currentTime (query ++ code), query ++ code )
 
                 newKeyboardFocus =
-                    findWithQuery entryId stuff.keyboardFocus queryText entryToString entries
+                    findWith matchesQuery uniqueId stuff.keyboardFocus queryText allEntries
             in
             case newKeyboardFocus of
                 Nothing ->
@@ -787,8 +871,8 @@ updateOpen entrySelected stuff msg =
                 NoQuery ->
                     Open stuff
 
-                Query time _ ->
-                    if Time.posixToMillis currentTime - Time.posixToMillis time > 1000 then
+                Query timeout time _ ->
+                    if Time.posixToMillis currentTime - Time.posixToMillis time > timeout then
                         Open { stuff | query = NoQuery }
                     else
                         Open stuff
@@ -811,8 +895,8 @@ subscriptions state =
                 NoQuery ->
                     Sub.none
 
-                Query _ _ ->
-                    Time.every 300 Tick
+                Query timeout _ _ ->
+                    Time.every (toFloat (timeout // 3)) Tick
 
 
 

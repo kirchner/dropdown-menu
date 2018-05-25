@@ -14,8 +14,7 @@ module Internal.Shared
         , find
         , findNext
         , findPrevious
-        , findWithQuery
-        , findWithQueryFromTop
+        , findWith
         , indexOf
         , last
         , preventDefault
@@ -59,6 +58,7 @@ viewEntries :
                 { selected : Bool
                 , keyboardFocused : Bool
                 , mouseFocused : Bool
+                , maybeQuery : Maybe String
                 }
                 -> a
                 -> HtmlDetails
@@ -67,10 +67,11 @@ viewEntries :
     -> String
     -> Maybe String
     -> Maybe String
+    -> Maybe String
     -> Maybe a
     -> RenderedEntries a
     -> List (Html msg)
-viewEntries msgs cfg id keyboardFocus mouseFocus selection renderedEntries =
+viewEntries msgs cfg id maybeQuery keyboardFocus mouseFocus selection renderedEntries =
     List.concat
         [ spacer renderedEntries.spaceAboveFirst
         , renderedEntries.entriesAbove
@@ -79,6 +80,7 @@ viewEntries msgs cfg id keyboardFocus mouseFocus selection renderedEntries =
                     viewEntry msgs
                         cfg
                         id
+                        maybeQuery
                         (selection == Just a)
                         (keyboardFocus == Just (cfg.entryId a))
                         (mouseFocus == Just (cfg.entryId a))
@@ -91,6 +93,7 @@ viewEntries msgs cfg id keyboardFocus mouseFocus selection renderedEntries =
                     viewEntry msgs
                         cfg
                         id
+                        maybeQuery
                         (selection == Just a)
                         (keyboardFocus == Just (cfg.entryId a))
                         (mouseFocus == Just (cfg.entryId a))
@@ -103,6 +106,7 @@ viewEntries msgs cfg id keyboardFocus mouseFocus selection renderedEntries =
                     viewEntry msgs
                         cfg
                         id
+                        maybeQuery
                         (selection == Just a)
                         (keyboardFocus == Just (cfg.entryId a))
                         (mouseFocus == Just (cfg.entryId a))
@@ -137,24 +141,27 @@ viewEntry :
                 { selected : Bool
                 , keyboardFocused : Bool
                 , mouseFocused : Bool
+                , maybeQuery : Maybe String
                 }
                 -> a
                 -> HtmlDetails
             , entryId : a -> String
         }
     -> String
+    -> Maybe String
     -> Bool
     -> Bool
     -> Bool
     -> a
     -> Html msg
-viewEntry msgs cfg id selected keyboardFocused mouseFocused a =
+viewEntry msgs cfg id maybeQuery selected keyboardFocused mouseFocused a =
     let
         { attributes, children } =
             cfg.li
                 { selected = selected
                 , keyboardFocused = keyboardFocused
                 , mouseFocused = mouseFocused
+                , maybeQuery = maybeQuery
                 }
                 a
     in
@@ -410,44 +417,37 @@ findHelp index entryId selectedId entries =
                 findHelp (index + 1) entryId selectedId rest
 
 
-findWithQueryFromTop : (a -> String) -> String -> (a -> String) -> List a -> Maybe String
-findWithQueryFromTop entryId query entryToString entries =
-    proceed entryId Nothing query entryToString entries
-
-
-findWithQuery : (a -> String) -> String -> String -> (a -> String) -> List a -> Maybe String
-findWithQuery entryId focus query entryToString entries =
+findWith : (String -> a -> Bool) -> (a -> String) -> String -> String -> List a -> Maybe String
+findWith matchesQuery uniqueId focus query entries =
     case entries of
         [] ->
             Nothing
 
         entry :: rest ->
-            if entryId entry == focus then
-                if
-                    String.toLower (entryToString entry)
-                        |> String.startsWith (String.toLower query)
-                then
-                    Just (entryId entry)
+            if uniqueId entry == focus then
+                let
+                    id =
+                        uniqueId entry
+                in
+                if matchesQuery query entry then
+                    Just id
                 else
-                    proceed entryId (Just (entryId entry)) query entryToString rest
+                    proceedWith matchesQuery uniqueId id query rest
             else
-                findWithQuery entryId focus query entryToString rest
+                findWith matchesQuery uniqueId focus query rest
 
 
-proceed : (a -> String) -> Maybe String -> String -> (a -> String) -> List a -> Maybe String
-proceed entryId entry query entryToString entries =
+proceedWith : (String -> a -> Bool) -> (a -> String) -> String -> String -> List a -> Maybe String
+proceedWith matchesQuery uniqueId id query entries =
     case entries of
         [] ->
-            entry
+            Just id
 
         next :: rest ->
-            if
-                String.toLower (entryToString next)
-                    |> String.startsWith (String.toLower query)
-            then
-                Just (entryId next)
+            if matchesQuery query next then
+                Just (uniqueId next)
             else
-                proceed entryId entry query entryToString rest
+                proceedWith matchesQuery uniqueId id query rest
 
 
 type Previous a
