@@ -23,6 +23,7 @@ import DropdownMenu.Filterable
 import DropdownMenu.Simple
 import Html exposing (Html)
 import Html.Attributes as Attributes
+import Html.Events as Events
 import Html.Lazy as Html
 
 
@@ -45,6 +46,16 @@ type alias Model =
     , localeRequiredMenu : DropdownMenu.Simple.State
     , selectedNumber : Maybe String
     , numberMenu : DropdownMenu.Filterable.State String
+
+    -- CONFIG
+    , lazyRendering : Bool
+    , simpleConfig : DropdownMenu.Simple.Config String
+    , jumpAtEnds : Bool
+    , closeAfterMouseSelection : Bool
+    , selectionFollowsFocus : Bool
+    , separateFocus : Bool
+    , handleHomeAndEnd : Bool
+    , enableTypeAhead : Bool
     }
 
 
@@ -60,7 +71,59 @@ init _ =
       , localeRequiredMenu = DropdownMenu.Simple.closed
       , selectedNumber = Nothing
       , numberMenu = DropdownMenu.Filterable.closed
+      , lazyRendering = True
+      , simpleConfig =
+            { uniqueId = identity
+            , behaviour =
+                { jumpAtEnds = True
+                , closeAfterMouseSelection = False
+                , selectionFollowsFocus = True
+                , separateFocus = True
+                , handleHomeAndEnd = True
+                , typeAhead =
+                    DropdownMenu.Simple.typeAhead 200 <|
+                        \query value ->
+                            String.toLower value
+                                |> String.contains (String.toLower query)
+                }
+            , view =
+                { container = [ Attributes.class "control" ]
+                , button =
+                    \{ selection, open } ->
+                        { attributes = [ Attributes.class "button" ]
+                        , children =
+                            [ Html.span
+                                [ Attributes.style "width" "100%"
+                                , Attributes.style "text-align" "left"
+                                ]
+                                [ selection
+                                    |> Maybe.withDefault "Select a locale..."
+                                    |> Html.text
+                                ]
+                            ]
+                        }
+                , ul = [ Attributes.class "list" ]
+                , li =
+                    \{ selected, keyboardFocused, mouseFocused, maybeQuery } name ->
+                        { attributes =
+                            [ Attributes.class "entry"
+                            , Attributes.classList
+                                [ ( "entry--keyboard-focused", keyboardFocused )
+                                , ( "entry--mouse-focused", mouseFocused )
+                                ]
+                            ]
+                        , children = liChildren maybeQuery name
+                        }
+                }
+            }
+      , jumpAtEnds = True
+      , closeAfterMouseSelection = True
+      , selectionFollowsFocus = False
+      , separateFocus = True
+      , handleHomeAndEnd = True
+      , enableTypeAhead = True
       }
+        |> updateSimpleConfig
     , Cmd.none
     )
 
@@ -70,6 +133,14 @@ type Msg
     | LocaleMenuMsg (DropdownMenu.Simple.Msg String)
     | LocaleRequiredMenuMsg (DropdownMenu.Simple.Msg String)
     | NumberMenuMsg (DropdownMenu.Filterable.Msg String)
+      -- CONFIG
+    | LazyRenderingChecked Bool
+    | JumpAtEndsChecked Bool
+    | CloseAfterMouseSelectionChecked Bool
+    | SelectionFollowsFocusChecked Bool
+    | SeparateFocusChecked Bool
+    | HandleHomeAndEndChecked Bool
+    | EnableTypeAheadChecked Bool
 
 
 type OutMsg
@@ -159,6 +230,73 @@ update msg model =
             , Cmd.map NumberMenuMsg cmd
             )
 
+        -- CONFIG
+        LazyRenderingChecked enabled ->
+            ( { model | lazyRendering = enabled }
+            , Cmd.none
+            )
+
+        JumpAtEndsChecked enabled ->
+            ( { model | jumpAtEnds = enabled }
+                |> updateSimpleConfig
+            , Cmd.none
+            )
+
+        CloseAfterMouseSelectionChecked enabled ->
+            ( { model | closeAfterMouseSelection = enabled }
+                |> updateSimpleConfig
+            , Cmd.none
+            )
+
+        SelectionFollowsFocusChecked enabled ->
+            ( { model | selectionFollowsFocus = enabled }
+                |> updateSimpleConfig
+            , Cmd.none
+            )
+
+        SeparateFocusChecked enabled ->
+            ( { model | separateFocus = enabled }
+                |> updateSimpleConfig
+            , Cmd.none
+            )
+
+        HandleHomeAndEndChecked enabled ->
+            ( { model | handleHomeAndEnd = enabled }
+                |> updateSimpleConfig
+            , Cmd.none
+            )
+
+        EnableTypeAheadChecked enabled ->
+            ( { model | enableTypeAhead = enabled }
+                |> updateSimpleConfig
+            , Cmd.none
+            )
+
+
+updateSimpleConfig : Model -> Model
+updateSimpleConfig model =
+    { model
+        | simpleConfig =
+            { uniqueId = model.simpleConfig.uniqueId
+            , behaviour =
+                { jumpAtEnds = model.jumpAtEnds
+                , closeAfterMouseSelection = model.closeAfterMouseSelection
+                , selectionFollowsFocus = model.selectionFollowsFocus
+                , separateFocus = model.separateFocus
+                , handleHomeAndEnd = model.handleHomeAndEnd
+                , typeAhead =
+                    if model.enableTypeAhead then
+                        DropdownMenu.Simple.typeAhead 200 <|
+                            \query value ->
+                                String.toLower value
+                                    |> String.contains (String.toLower query)
+                    else
+                        DropdownMenu.Simple.noTypeAhead
+                }
+            , view = model.simpleConfig.view
+            }
+    }
+
 
 subscriptions model =
     Sub.batch
@@ -172,22 +310,88 @@ subscriptions model =
 
 
 view model =
-    Html.div
-        [ Attributes.style "display" "flex"
-        , Attributes.style "flex-flow" "column"
+    Html.section
+        [ Attributes.class "section" ]
+        [ Html.div
+            [ Attributes.class "container" ]
+            [ Html.div
+                [ Attributes.class "columns" ]
+                [ Html.div
+                    [ Attributes.class "column" ]
+                    [ Html.form []
+                        [ Html.lazy4 viewLocales
+                            model.lazyRendering
+                            model.simpleConfig
+                            model.selectedLocale
+                            model.localeMenu
+                        , viewCheckbox LazyRenderingChecked
+                            model.lazyRendering
+                            "Lazy rendering"
+                        , Html.label
+                            [ Attributes.class "label" ]
+                            [ Html.text "Customize behaviour" ]
+                        , viewCheckbox JumpAtEndsChecked
+                            model.jumpAtEnds
+                            "Jump at ends"
+                        , viewCheckbox CloseAfterMouseSelectionChecked
+                            model.closeAfterMouseSelection
+                            "Close after mouse selection"
+                        , viewCheckbox SelectionFollowsFocusChecked
+                            model.selectionFollowsFocus
+                            "Selection follows focus"
+                        , viewCheckbox SeparateFocusChecked
+                            model.separateFocus
+                            "Separate focus"
+                        , viewCheckbox HandleHomeAndEndChecked
+                            model.handleHomeAndEnd
+                            "Handle Home and End"
+                        , viewCheckbox EnableTypeAheadChecked
+                            model.enableTypeAhead
+                            "Enable type ahead"
+                        ]
+                    ]
+                , Html.div
+                    [ Attributes.class "column" ]
+                    [ Html.form []
+                        [ Html.lazy2 viewLicenses model.selectedLicense model.licenseMenu ]
+                    ]
+                , Html.div
+                    [ Attributes.class "column" ]
+                    [ Html.form []
+                        [ Html.lazy2 viewNumbers model.selectedNumber model.numberMenu ]
+                    ]
+                ]
+            ]
         ]
-        [ Html.lazy2 viewLicenses model.selectedLicense model.licenseMenu
-        , Html.lazy2 viewLocales model.selectedLocale model.localeMenu
-        , Html.lazy2 viewLocalesRequired model.selectedLocaleRequired model.localeRequiredMenu
-        , Html.lazy2 viewNumbers model.selectedNumber model.numberMenu
+
+
+viewCheckbox checked enabled description =
+    Html.div
+        [ Attributes.class "field" ]
+        [ Html.div
+            [ Attributes.class "control" ]
+            [ Html.label
+                [ Attributes.class "checkbox" ]
+                [ Html.input
+                    [ Attributes.type_ "checkbox"
+                    , Attributes.checked enabled
+                    , Events.onCheck checked
+                    ]
+                    []
+                , Html.text (" " ++ description)
+                ]
+            ]
         ]
 
 
 viewLicenses selectedLicense licenseMenu =
-    Html.div []
-        [ Html.span
-            [ Attributes.id "license__label" ]
-            [ Html.text "License" ]
+    Html.div
+        [ Attributes.class "field" ]
+        [ Html.label
+            [ Attributes.class "label"
+            , Attributes.id "license__label"
+            ]
+            [ Html.text "Filterable dropdown menu" ]
         , licenses
             |> DropdownMenu.Filterable.view filterableConfig
                 { id = "license"
@@ -200,45 +404,44 @@ viewLicenses selectedLicense licenseMenu =
         ]
 
 
-viewLocales selectedLocale localeMenu =
-    Html.div []
-        [ Html.span
-            [ Attributes.id "locale__label" ]
-            [ Html.text "Locale" ]
-        , selectedLocale
-            |> DropdownMenu.Simple.viewLazy (\_ -> 42)
-                simpleConfig
-                { id = "locale"
-                , labelledBy = "locale__label"
-                }
-                localeMenu
-                locales
-            |> Html.map LocaleMenuMsg
-        ]
-
-
-viewLocalesRequired selectedLocale localeMenu =
-    Html.div []
-        [ Html.span
-            [ Attributes.id "locale__label" ]
-            [ Html.text "Locale" ]
-        , Just selectedLocale
-            |> DropdownMenu.Simple.viewLazy (\_ -> 42)
-                simpleConfig
-                { id = "locale-required"
-                , labelledBy = "locale-required__label"
-                }
-                localeMenu
-                locales
-            |> Html.map LocaleRequiredMenuMsg
+viewLocales lazyRendering config selectedLocale localeMenu =
+    Html.div
+        [ Attributes.class "field" ]
+        [ Html.label
+            [ Attributes.class "label"
+            , Attributes.id "locale__label"
+            ]
+            [ Html.text "Simple dropdown menu" ]
+        , if lazyRendering then
+            selectedLocale
+                |> DropdownMenu.Simple.viewLazy (\_ -> 42)
+                    config
+                    { id = "locale"
+                    , labelledBy = "locale__label"
+                    }
+                    localeMenu
+                    locales
+                |> Html.map LocaleMenuMsg
+          else
+            selectedLocale
+                |> DropdownMenu.Simple.view config
+                    { id = "locale"
+                    , labelledBy = "locale__label"
+                    }
+                    localeMenu
+                    locales
+                |> Html.map LocaleMenuMsg
         ]
 
 
 viewNumbers selectedNumber numberMenu =
-    Html.div []
-        [ Html.span
-            [ Attributes.id "number__label" ]
-            [ Html.text "Number" ]
+    Html.div
+        [ Attributes.class "field" ]
+        [ Html.label
+            [ Attributes.class "label"
+            , Attributes.id "number__label"
+            ]
+            [ Html.text "Filterable dropdown menu (lazy rendering)" ]
         , numbers
             |> DropdownMenu.Filterable.viewLazy (\_ -> 42)
                 filterableConfig
@@ -263,7 +466,7 @@ filterableConfig =
         , printEntry = identity
         , jumpAtEnds = True
         , closeAfterMouseSelection = False
-        , container = [ Attributes.style "width" "500px" ]
+        , container = [ Attributes.class "control" ]
         , textfield =
             \{ selection, open } -> [ Attributes.class "textfield" ]
         , ul = [ Attributes.class "list" ]
@@ -279,48 +482,6 @@ filterableConfig =
                 , children = liChildren maybeQuery name
                 }
         }
-
-
-simpleConfig : DropdownMenu.Simple.Config String
-simpleConfig =
-    { uniqueId = identity
-    , behaviour =
-        { jumpAtEnds = True
-        , closeAfterMouseSelection = False
-        , selectionFollowsFocus = True
-        , separateFocus = True
-        , handleHomeAndEnd = True
-        , typeAhead =
-            DropdownMenu.Simple.typeAhead 200 <|
-                \query value ->
-                    String.toLower value
-                        |> String.contains (String.toLower query)
-        }
-    , view =
-        { container = [ Attributes.style "width" "500px" ]
-        , button =
-            \{ selection, open } ->
-                { attributes = [ Attributes.class "button" ]
-                , children =
-                    [ selection
-                        |> Maybe.withDefault "Select a locale..."
-                        |> Html.text
-                    ]
-                }
-        , ul = [ Attributes.class "list" ]
-        , li =
-            \{ selected, keyboardFocused, mouseFocused, maybeQuery } name ->
-                { attributes =
-                    [ Attributes.class "entry"
-                    , Attributes.classList
-                        [ ( "entry--keyboard-focused", keyboardFocused )
-                        , ( "entry--mouse-focused", mouseFocused )
-                        ]
-                    ]
-                , children = liChildren maybeQuery name
-                }
-        }
-    }
 
 
 liChildren : Maybe String -> String -> List (Html Never)

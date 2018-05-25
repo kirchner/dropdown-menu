@@ -308,6 +308,7 @@ viewButton : Data a -> HtmlDetails -> String -> Maybe a -> Bool -> Html (Msg a)
 viewButton ({ id } as data) { attributes, children } labelledBy selection open =
     Html.button
         ([ Attributes.id (printButtonId id)
+         , Attributes.type_ "button"
          , Attributes.attribute "aria-haspopup" "listbox"
          , Attributes.attribute "aria-labelledby"
             (printButtonId id ++ " " ++ labelledBy)
