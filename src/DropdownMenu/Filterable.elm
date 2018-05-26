@@ -166,14 +166,6 @@ type alias Ids =
 view : Config a -> Ids -> State -> List a -> Maybe a -> Html (Msg a)
 view config ids state allEntries selection =
     let
-        data =
-            { behaviour = config.behaviour
-            , id = ids.id
-            , uniqueId = config.uniqueId
-            , allEntries = allEntries
-            , matchesQuery = config.matchesQuery
-            }
-
         textfieldHtmlAttributes =
             config.view.textfield
                 { selection = selection
@@ -182,6 +174,16 @@ view config ids state allEntries selection =
     in
     case state of
         Closed ->
+            let
+                data =
+                    { behaviour = config.behaviour
+                    , id = ids.id
+                    , uniqueId = config.uniqueId
+                    , allEntries = allEntries
+                    , filteredEntries = allEntries
+                    , matchesQuery = config.matchesQuery
+                    }
+            in
             viewClosed data
                 config.printEntry
                 ids.placeholder
@@ -192,6 +194,16 @@ view config ids state allEntries selection =
                 allEntries
 
         OpenEmpty query ->
+            let
+                data =
+                    { behaviour = config.behaviour
+                    , id = ids.id
+                    , uniqueId = config.uniqueId
+                    , allEntries = allEntries
+                    , filteredEntries = []
+                    , matchesQuery = config.matchesQuery
+                    }
+            in
             Html.div
                 (appendAttributes NoOp config.view.container [])
                 [ viewTextfield data
@@ -208,9 +220,16 @@ view config ids state allEntries selection =
 
         Open { keyboardFocus, maybeMouseFocus, query } ->
             let
-                filteredEntries =
-                    allEntries
-                        |> List.filter (config.matchesQuery query)
+                data =
+                    { behaviour = config.behaviour
+                    , id = ids.id
+                    , uniqueId = config.uniqueId
+                    , allEntries = allEntries
+                    , filteredEntries =
+                        allEntries
+                            |> List.filter (config.matchesQuery query)
+                    , matchesQuery = config.matchesQuery
+                    }
             in
             Html.div
                 (appendAttributes NoOp config.view.container [])
@@ -222,7 +241,7 @@ view config ids state allEntries selection =
                     textfieldHtmlAttributes
                     ids.labelledBy
                     selection
-                    filteredEntries
+                    data.filteredEntries
                     True
                 , viewList data config ids (Just query) keyboardFocus maybeMouseFocus selection <|
                     { spaceAboveFirst = 0
@@ -234,7 +253,7 @@ view config ids state allEntries selection =
                     , spaceBelowSecond = 0
                     , droppedBelowSecond = 0
                     , entriesAbove = []
-                    , visibleEntries = filteredEntries
+                    , visibleEntries = data.filteredEntries
                     , entriesBelow = []
                     }
                 ]
@@ -244,14 +263,6 @@ view config ids state allEntries selection =
 viewLazy : (a -> Float) -> Config a -> Ids -> State -> List a -> Maybe a -> Html (Msg a)
 viewLazy entryHeight config ids state allEntries selection =
     let
-        data =
-            { behaviour = config.behaviour
-            , id = ids.id
-            , uniqueId = config.uniqueId
-            , allEntries = allEntries
-            , matchesQuery = config.matchesQuery
-            }
-
         textfieldHtmlAttributes =
             config.view.textfield
                 { selection = selection
@@ -260,6 +271,16 @@ viewLazy entryHeight config ids state allEntries selection =
     in
     case state of
         Closed ->
+            let
+                data =
+                    { behaviour = config.behaviour
+                    , id = ids.id
+                    , uniqueId = config.uniqueId
+                    , allEntries = allEntries
+                    , filteredEntries = allEntries
+                    , matchesQuery = config.matchesQuery
+                    }
+            in
             viewClosed data
                 config.printEntry
                 ids.placeholder
@@ -270,6 +291,16 @@ viewLazy entryHeight config ids state allEntries selection =
                 allEntries
 
         OpenEmpty query ->
+            let
+                data =
+                    { behaviour = config.behaviour
+                    , id = ids.id
+                    , uniqueId = config.uniqueId
+                    , allEntries = allEntries
+                    , filteredEntries = []
+                    , matchesQuery = config.matchesQuery
+                    }
+            in
             Html.div
                 (appendAttributes NoOp config.view.container [])
                 [ viewTextfield data
@@ -286,13 +317,28 @@ viewLazy entryHeight config ids state allEntries selection =
 
         Open { keyboardFocus, maybeMouseFocus, query, ulScrollTop, ulClientHeight } ->
             let
-                filteredEntries =
-                    allEntries
-                        |> List.filter (config.matchesQuery query)
+                data =
+                    { behaviour = config.behaviour
+                    , id = ids.id
+                    , uniqueId = config.uniqueId
+                    , allEntries = allEntries
+                    , filteredEntries =
+                        allEntries
+                            |> List.filter (config.matchesQuery query)
+                    , matchesQuery = config.matchesQuery
+                    }
 
                 maybeFocusIndex =
-                    find config.uniqueId keyboardFocus filteredEntries
+                    find config.uniqueId keyboardFocus data.filteredEntries
                         |> Maybe.map Tuple.first
+
+                renderedEntries =
+                    computeRenderedEntries
+                        entryHeight
+                        ulScrollTop
+                        ulClientHeight
+                        maybeFocusIndex
+                        data.filteredEntries
             in
             Html.div
                 (appendAttributes NoOp config.view.container [])
@@ -304,11 +350,17 @@ viewLazy entryHeight config ids state allEntries selection =
                     textfieldHtmlAttributes
                     ids.labelledBy
                     selection
-                    filteredEntries
+                    renderedEntries.visibleEntries
                     True
-                , filteredEntries
-                    |> computeRenderedEntries entryHeight ulScrollTop ulClientHeight maybeFocusIndex
-                    |> viewList data config ids (Just query) keyboardFocus maybeMouseFocus selection
+                , viewList
+                    data
+                    config
+                    ids
+                    (Just query)
+                    keyboardFocus
+                    maybeMouseFocus
+                    selection
+                    renderedEntries
                 ]
 
 
@@ -552,6 +604,7 @@ type alias Data a =
     , id : String
     , uniqueId : a -> String
     , allEntries : List a
+    , filteredEntries : List a
     , matchesQuery : String -> a -> Bool
     }
 
@@ -755,11 +808,7 @@ updateOpen entrySelected stuff msg =
                         Nothing
                     )
 
-        TextfieldArrowUpPressed { behaviour, id, uniqueId, allEntries, matchesQuery } maybeScrollData ->
-            let
-                filteredEntries =
-                    List.filter (matchesQuery stuff.query) allEntries
-            in
+        TextfieldArrowUpPressed { behaviour, id, uniqueId, allEntries, matchesQuery, filteredEntries } maybeScrollData ->
             case findPrevious uniqueId stuff.keyboardFocus filteredEntries of
                 Just (Last lastEntry) ->
                     if behaviour.jumpAtEnds then
@@ -801,11 +850,7 @@ updateOpen entrySelected stuff msg =
                     , Nothing
                     )
 
-        TextfieldArrowDownPressed { behaviour, id, uniqueId, allEntries, matchesQuery } maybeScrollData ->
-            let
-                filteredEntries =
-                    List.filter (matchesQuery stuff.query) allEntries
-            in
+        TextfieldArrowDownPressed { behaviour, id, uniqueId, allEntries, matchesQuery, filteredEntries } maybeScrollData ->
             case findNext uniqueId stuff.keyboardFocus filteredEntries of
                 Just (First firstEntry) ->
                     if behaviour.jumpAtEnds then
@@ -876,11 +921,7 @@ updateOpen entrySelected stuff msg =
                 , Nothing
                 )
 
-        TextfieldHomePressed { behaviour, id, uniqueId, allEntries, matchesQuery } ->
-            let
-                filteredEntries =
-                    List.filter (matchesQuery stuff.query) allEntries
-            in
+        TextfieldHomePressed { behaviour, id, uniqueId, allEntries, matchesQuery, filteredEntries } ->
             case List.head filteredEntries of
                 Nothing ->
                     ( OpenEmpty stuff.query
@@ -896,11 +937,7 @@ updateOpen entrySelected stuff msg =
                     , Nothing
                     )
 
-        TextfieldEndPressed { behaviour, id, uniqueId, allEntries, matchesQuery } ->
-            let
-                filteredEntries =
-                    List.filter (matchesQuery stuff.query) allEntries
-            in
+        TextfieldEndPressed { behaviour, id, uniqueId, allEntries, matchesQuery, filteredEntries } ->
             case List.head (List.reverse filteredEntries) of
                 Nothing ->
                     ( OpenEmpty stuff.query, Cmd.none, Nothing )
