@@ -314,10 +314,10 @@ viewButton ({ id } as data) { attributes, children } labelledBy selection open =
             (printButtonId id ++ " " ++ labelledBy)
          , Attributes.style "position" "relative"
          , Attributes.tabindex 0
-         , Events.onClick (ButtonClicked data)
+         , Events.onClick (ButtonClicked data selection)
          , Events.on "keydown"
             (Decode.field "key" Decode.string
-                |> Decode.andThen (buttonKeyDown data)
+                |> Decode.andThen (buttonKeyDown data selection)
             )
          ]
             |> setAriaExpanded open
@@ -381,14 +381,14 @@ viewList data config ids maybeQuery keyboardFocus maybeMouseFocus selection rend
         )
 
 
-buttonKeyDown : Data a -> String -> Decoder (Msg a)
-buttonKeyDown data code =
+buttonKeyDown : Data a -> Maybe a -> String -> Decoder (Msg a)
+buttonKeyDown data maybeSelection code =
     case code of
         "ArrowUp" ->
-            Decode.succeed (ButtonArrowUpPressed data)
+            Decode.succeed (ButtonArrowUpPressed data maybeSelection)
 
         "ArrowDown" ->
-            Decode.succeed (ButtonArrowDownPressed data)
+            Decode.succeed (ButtonArrowDownPressed data maybeSelection)
 
         _ ->
             Decode.fail "not handling that key here"
@@ -512,9 +512,9 @@ printButtonId id =
 type Msg a
     = NoOp
       -- BUTTON
-    | ButtonClicked (Data a)
-    | ButtonArrowUpPressed (Data a)
-    | ButtonArrowDownPressed (Data a)
+    | ButtonClicked (Data a) (Maybe a)
+    | ButtonArrowUpPressed (Data a) (Maybe a)
+    | ButtonArrowDownPressed (Data a) (Maybe a)
       -- LIST
     | ListMouseDown
     | ListMouseUp
@@ -562,89 +562,265 @@ updateClosed entrySelected msg =
             ( Closed, Cmd.none, Nothing )
 
         -- BUTTON
-        ButtonClicked { behaviour, id, uniqueId, allEntries } ->
-            case List.head allEntries of
+        ButtonClicked { behaviour, id, uniqueId, allEntries } maybeSelection ->
+            case maybeSelection of
                 Nothing ->
-                    ( Closed, Cmd.none, Nothing )
+                    case List.head allEntries of
+                        Nothing ->
+                            ( Closed, Cmd.none, Nothing )
 
-                Just firstEntry ->
-                    ( Open
-                        { preventBlur = False
-                        , query = NoQuery
-                        , keyboardFocus = uniqueId firstEntry
-                        , maybeMouseFocus =
-                            if behaviour.separateFocus then
+                        Just firstEntry ->
+                            ( Open
+                                { preventBlur = False
+                                , query = NoQuery
+                                , keyboardFocus = uniqueId firstEntry
+                                , maybeMouseFocus =
+                                    if behaviour.separateFocus then
+                                        Nothing
+                                    else
+                                        Just (uniqueId firstEntry)
+                                , ulScrollTop = 0
+                                , ulClientHeight = 1000
+                                }
+                            , Cmd.batch
+                                [ scrollListToTop id
+                                , focusList id
+                                ]
+                            , if behaviour.selectionFollowsFocus then
+                                Just (entrySelected firstEntry)
+                              else
                                 Nothing
-                            else
-                                Just (uniqueId firstEntry)
-                        , ulScrollTop = 0
-                        , ulClientHeight = 1000
-                        }
-                    , Cmd.batch
-                        [ scrollListToTop id
-                        , focusList id
-                        ]
-                    , if behaviour.selectionFollowsFocus then
-                        Just (entrySelected firstEntry)
-                      else
-                        Nothing
-                    )
+                            )
 
-        ButtonArrowUpPressed { behaviour, id, uniqueId, allEntries } ->
-            case List.head (List.reverse allEntries) of
+                Just selection ->
+                    if List.member selection allEntries then
+                        ( Open
+                            { preventBlur = False
+                            , query = NoQuery
+                            , keyboardFocus = uniqueId selection
+                            , maybeMouseFocus =
+                                if behaviour.separateFocus then
+                                    Nothing
+                                else
+                                    Just (uniqueId selection)
+                            , ulScrollTop = 0
+                            , ulClientHeight = 1000
+                            }
+                        , Cmd.batch
+                            [ Browser.scrollIntoView (printEntryId id (uniqueId selection))
+                                |> Task.attempt (\_ -> NoOp)
+                            , focusList id
+                            ]
+                        , Nothing
+                        )
+                    else
+                        ( Closed, Cmd.none, Nothing )
+
+        ButtonArrowUpPressed { behaviour, id, uniqueId, allEntries } maybeSelection ->
+            case maybeSelection of
                 Nothing ->
-                    ( Closed, Cmd.none, Nothing )
+                    case List.head (List.reverse allEntries) of
+                        Nothing ->
+                            ( Closed, Cmd.none, Nothing )
 
-                Just lastEntry ->
-                    ( Open
-                        { preventBlur = False
-                        , query = NoQuery
-                        , keyboardFocus = uniqueId lastEntry
-                        , maybeMouseFocus =
-                            if behaviour.separateFocus then
+                        Just lastEntry ->
+                            ( Open
+                                { preventBlur = False
+                                , query = NoQuery
+                                , keyboardFocus = uniqueId lastEntry
+                                , maybeMouseFocus =
+                                    if behaviour.separateFocus then
+                                        Nothing
+                                    else
+                                        Just (uniqueId lastEntry)
+                                , ulScrollTop = 0
+                                , ulClientHeight = 1000
+                                }
+                            , Cmd.batch
+                                [ scrollListToBottom id
+                                , focusList id
+                                ]
+                            , if behaviour.selectionFollowsFocus then
+                                Just (entrySelected lastEntry)
+                              else
                                 Nothing
-                            else
-                                Just (uniqueId lastEntry)
-                        , ulScrollTop = 0
-                        , ulClientHeight = 1000
-                        }
-                    , Cmd.batch
-                        [ scrollListToBottom id
-                        , focusList id
-                        ]
-                    , if behaviour.selectionFollowsFocus then
-                        Just (entrySelected lastEntry)
-                      else
-                        Nothing
-                    )
+                            )
 
-        ButtonArrowDownPressed { behaviour, id, uniqueId, allEntries } ->
-            case List.head allEntries of
+                Just selection ->
+                    case findPrevious uniqueId (uniqueId selection) allEntries of
+                        Just (Last lastEntry) ->
+                            if behaviour.jumpAtEnds then
+                                ( Open
+                                    { preventBlur = False
+                                    , query = NoQuery
+                                    , keyboardFocus = uniqueId lastEntry
+                                    , maybeMouseFocus =
+                                        if behaviour.separateFocus then
+                                            Nothing
+                                        else
+                                            Just (uniqueId lastEntry)
+                                    , ulScrollTop = 0
+                                    , ulClientHeight = 1000
+                                    }
+                                , Cmd.batch
+                                    [ scrollListToBottom id
+                                    , focusList id
+                                    ]
+                                , if behaviour.selectionFollowsFocus then
+                                    Just (entrySelected lastEntry)
+                                  else
+                                    Nothing
+                                )
+                            else
+                                ( Open
+                                    { preventBlur = False
+                                    , query = NoQuery
+                                    , keyboardFocus = uniqueId selection
+                                    , maybeMouseFocus =
+                                        if behaviour.separateFocus then
+                                            Nothing
+                                        else
+                                            Just (uniqueId selection)
+                                    , ulScrollTop = 0
+                                    , ulClientHeight = 1000
+                                    }
+                                , Cmd.batch
+                                    [ Browser.scrollIntoView (printEntryId id (uniqueId selection))
+                                        |> Task.attempt (\_ -> NoOp)
+                                    , focusList id
+                                    ]
+                                , Nothing
+                                )
+
+                        Just (Previous newIndex newEntry) ->
+                            ( Open
+                                { preventBlur = False
+                                , query = NoQuery
+                                , keyboardFocus = uniqueId newEntry
+                                , maybeMouseFocus =
+                                    if behaviour.separateFocus then
+                                        Nothing
+                                    else
+                                        Just (uniqueId newEntry)
+                                , ulScrollTop = 0
+                                , ulClientHeight = 1000
+                                }
+                            , Cmd.batch
+                                [ Browser.scrollIntoView (printEntryId id (uniqueId newEntry))
+                                    |> Task.attempt (\_ -> NoOp)
+                                , focusList id
+                                ]
+                            , if behaviour.selectionFollowsFocus then
+                                Just (entrySelected newEntry)
+                              else
+                                Nothing
+                            )
+
+                        Nothing ->
+                            ( Closed, Cmd.none, Nothing )
+
+        ButtonArrowDownPressed { behaviour, id, uniqueId, allEntries } maybeSelection ->
+            case maybeSelection of
                 Nothing ->
-                    ( Closed, Cmd.none, Nothing )
+                    case List.head allEntries of
+                        Nothing ->
+                            ( Closed, Cmd.none, Nothing )
 
-                Just firstEntry ->
-                    ( Open
-                        { preventBlur = False
-                        , query = NoQuery
-                        , keyboardFocus = uniqueId firstEntry
-                        , maybeMouseFocus =
-                            if behaviour.separateFocus then
+                        Just firstEntry ->
+                            ( Open
+                                { preventBlur = False
+                                , query = NoQuery
+                                , keyboardFocus = uniqueId firstEntry
+                                , maybeMouseFocus =
+                                    if behaviour.separateFocus then
+                                        Nothing
+                                    else
+                                        Just (uniqueId firstEntry)
+                                , ulScrollTop = 0
+                                , ulClientHeight = 1000
+                                }
+                            , Cmd.batch
+                                [ scrollListToTop id
+                                , focusList id
+                                ]
+                            , if behaviour.selectionFollowsFocus then
+                                Just (entrySelected firstEntry)
+                              else
                                 Nothing
+                            )
+
+                Just selection ->
+                    case findNext uniqueId (uniqueId selection) allEntries of
+                        Just (First firstEntry) ->
+                            if behaviour.jumpAtEnds then
+                                ( Open
+                                    { preventBlur = False
+                                    , query = NoQuery
+                                    , keyboardFocus = uniqueId firstEntry
+                                    , maybeMouseFocus =
+                                        if behaviour.separateFocus then
+                                            Nothing
+                                        else
+                                            Just (uniqueId firstEntry)
+                                    , ulScrollTop = 0
+                                    , ulClientHeight = 1000
+                                    }
+                                , Cmd.batch
+                                    [ scrollListToTop id
+                                    , focusList id
+                                    ]
+                                , if behaviour.selectionFollowsFocus then
+                                    Just (entrySelected firstEntry)
+                                  else
+                                    Nothing
+                                )
                             else
-                                Just (uniqueId firstEntry)
-                        , ulScrollTop = 0
-                        , ulClientHeight = 1000
-                        }
-                    , Cmd.batch
-                        [ scrollListToTop id
-                        , focusList id
-                        ]
-                    , if behaviour.selectionFollowsFocus then
-                        Just (entrySelected firstEntry)
-                      else
-                        Nothing
-                    )
+                                ( Open
+                                    { preventBlur = False
+                                    , query = NoQuery
+                                    , keyboardFocus = uniqueId selection
+                                    , maybeMouseFocus =
+                                        if behaviour.separateFocus then
+                                            Nothing
+                                        else
+                                            Just (uniqueId selection)
+                                    , ulScrollTop = 0
+                                    , ulClientHeight = 1000
+                                    }
+                                , Cmd.batch
+                                    [ Browser.scrollIntoView (printEntryId id (uniqueId selection))
+                                        |> Task.attempt (\_ -> NoOp)
+                                    , focusList id
+                                    ]
+                                , Nothing
+                                )
+
+                        Just (Next newIndex newEntry) ->
+                            ( Open
+                                { preventBlur = False
+                                , query = NoQuery
+                                , keyboardFocus = uniqueId newEntry
+                                , maybeMouseFocus =
+                                    if behaviour.separateFocus then
+                                        Nothing
+                                    else
+                                        Just (uniqueId newEntry)
+                                , ulScrollTop = 0
+                                , ulClientHeight = 1000
+                                }
+                            , Cmd.batch
+                                [ Browser.scrollIntoView (printEntryId id (uniqueId newEntry))
+                                    |> Task.attempt (\_ -> NoOp)
+                                , focusList id
+                                ]
+                            , if behaviour.selectionFollowsFocus then
+                                Just (entrySelected newEntry)
+                              else
+                                Nothing
+                            )
+
+                        Nothing ->
+                            ( Closed, Cmd.none, Nothing )
 
         _ ->
             ( Closed, Cmd.none, Nothing )
