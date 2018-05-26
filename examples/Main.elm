@@ -39,14 +39,14 @@ main =
 
 type alias Model =
     { selectedLicense : Maybe String
-    , licenseMenu : DropdownMenu.Filterable.State String
+    , licenseMenu : DropdownMenu.Filterable.State
     , selectedLocale : Maybe String
     , localeMenu : DropdownMenu.Simple.State
     , selectedLocaleRequired : String
     , localeRequiredMenu : DropdownMenu.Simple.State
-    , selectedNumber : Maybe String
-    , numberMenu : DropdownMenu.Filterable.State String
 
+    --, selectedNumber : Maybe String
+    --, numberMenu : DropdownMenu.Filterable.State String
     -- CONFIG
     , lazyRendering : Bool
     , simpleConfig : DropdownMenu.Simple.Config String
@@ -69,8 +69,9 @@ init _ =
                 |> List.head
                 |> Maybe.withDefault ""
       , localeRequiredMenu = DropdownMenu.Simple.closed
-      , selectedNumber = Nothing
-      , numberMenu = DropdownMenu.Filterable.closed
+
+      --, selectedNumber = Nothing
+      --, numberMenu = DropdownMenu.Filterable.closed
       , lazyRendering = True
       , simpleConfig =
             { uniqueId = identity
@@ -132,7 +133,7 @@ type Msg
     = LicenseMenuMsg (DropdownMenu.Filterable.Msg String)
     | LocaleMenuMsg (DropdownMenu.Simple.Msg String)
     | LocaleRequiredMenuMsg (DropdownMenu.Simple.Msg String)
-    | NumberMenuMsg (DropdownMenu.Filterable.Msg String)
+    --| NumberMenuMsg (DropdownMenu.Filterable.Msg String)
       -- CONFIG
     | LazyRenderingChecked Bool
     | JumpAtEndsChecked Bool
@@ -149,15 +150,12 @@ type OutMsg
 
 
 update msg model =
-    case msg of
+    case Debug.log "msg" msg of
         LicenseMenuMsg dropdownMenuMsg ->
             let
                 ( newDropdownMenu, cmd, maybeOutMsg ) =
                     DropdownMenu.Filterable.update
-                        { entrySelected = EntrySelected
-                        , selectionDismissed = SelectionDismissed
-                        }
-                        model.selectedLicense
+                        EntrySelected
                         model.licenseMenu
                         dropdownMenuMsg
 
@@ -204,32 +202,28 @@ update msg model =
             , Cmd.map LocaleRequiredMenuMsg cmd
             )
 
-        NumberMenuMsg dropdownMenuMsg ->
-            let
-                ( newNumberMenu, cmd, maybeOutMsg ) =
-                    DropdownMenu.Filterable.update
-                        { entrySelected = EntrySelected
-                        , selectionDismissed = SelectionDismissed
-                        }
-                        model.selectedNumber
-                        model.numberMenu
-                        dropdownMenuMsg
-
-                newModel =
-                    { model | numberMenu = newNumberMenu }
-            in
-            ( case maybeOutMsg of
-                Just (EntrySelected entry) ->
-                    { newModel | selectedNumber = Just entry }
-
-                Just SelectionDismissed ->
-                    { newModel | selectedNumber = Nothing }
-
-                Nothing ->
-                    newModel
-            , Cmd.map NumberMenuMsg cmd
-            )
-
+        --NumberMenuMsg dropdownMenuMsg ->
+        --    let
+        --        ( newNumberMenu, cmd, maybeOutMsg ) =
+        --            DropdownMenu.Filterable.update
+        --                { entrySelected = EntrySelected
+        --                , selectionDismissed = SelectionDismissed
+        --                }
+        --                model.selectedNumber
+        --                model.numberMenu
+        --                dropdownMenuMsg
+        --        newModel =
+        --            { model | numberMenu = newNumberMenu }
+        --    in
+        --    ( case maybeOutMsg of
+        --        Just (EntrySelected entry) ->
+        --            { newModel | selectedNumber = Just entry }
+        --        Just SelectionDismissed ->
+        --            { newModel | selectedNumber = Nothing }
+        --        Nothing ->
+        --            newModel
+        --    , Cmd.map NumberMenuMsg cmd
+        --    )
         -- CONFIG
         LazyRenderingChecked enabled ->
             ( { model | lazyRendering = enabled }
@@ -355,11 +349,12 @@ view model =
                     [ Html.form []
                         [ Html.lazy2 viewLicenses model.selectedLicense model.licenseMenu ]
                     ]
-                , Html.div
-                    [ Attributes.class "column" ]
-                    [ Html.form []
-                        [ Html.lazy2 viewNumbers model.selectedNumber model.numberMenu ]
-                    ]
+
+                --, Html.div
+                --    [ Attributes.class "column" ]
+                --    [ Html.form []
+                --        [ Html.lazy2 viewNumbers model.selectedNumber model.numberMenu ]
+                --    ]
                 ]
             ]
         ]
@@ -392,14 +387,14 @@ viewLicenses selectedLicense licenseMenu =
             , Attributes.id "license__label"
             ]
             [ Html.text "Filterable dropdown menu" ]
-        , licenses
+        , selectedLicense
             |> DropdownMenu.Filterable.view filterableConfig
                 { id = "license"
                 , labelledBy = "license__label"
                 , placeholder = "Select a license..."
                 }
-                selectedLicense
                 licenseMenu
+                licenses
             |> Html.map LicenseMenuMsg
         ]
 
@@ -434,39 +429,45 @@ viewLocales lazyRendering config selectedLocale localeMenu =
         ]
 
 
-viewNumbers selectedNumber numberMenu =
-    Html.div
-        [ Attributes.class "field" ]
-        [ Html.label
-            [ Attributes.class "label"
-            , Attributes.id "number__label"
-            ]
-            [ Html.text "Filterable dropdown menu (lazy rendering)" ]
-        , numbers
-            |> DropdownMenu.Filterable.viewLazy (\_ -> 42)
-                filterableConfig
-                { id = "number"
-                , labelledBy = "number__label"
-                , placeholder = "Select a number..."
-                }
-                selectedNumber
-                numberMenu
-            |> Html.map NumberMenuMsg
-        ]
+
+--viewNumbers selectedNumber numberMenu =
+--    Html.div
+--        [ Attributes.class "field" ]
+--        [ Html.label
+--            [ Attributes.class "label"
+--            , Attributes.id "number__label"
+--            ]
+--            [ Html.text "Filterable dropdown menu (lazy rendering)" ]
+--        , numbers
+--            |> DropdownMenu.Filterable.viewLazy (\_ -> 42)
+--                filterableConfig
+--                { id = "number"
+--                , labelledBy = "number__label"
+--                , placeholder = "Select a number..."
+--                }
+--                selectedNumber
+--                numberMenu
+--            |> Html.map NumberMenuMsg
+--        ]
 
 
 filterableConfig : DropdownMenu.Filterable.Config String
 filterableConfig =
-    DropdownMenu.Filterable.config
-        { matchesQuery =
-            \query value ->
-                String.toLower value
-                    |> String.contains (String.toLower query)
-        , entryId = identity
-        , printEntry = identity
-        , jumpAtEnds = True
+    { uniqueId = identity
+    , printEntry = identity
+    , matchesQuery =
+        \query value ->
+            String.toLower value
+                |> String.contains (String.toLower query)
+    , behaviour =
+        { jumpAtEnds = True
         , closeAfterMouseSelection = False
-        , container = [ Attributes.class "control" ]
+        , separateFocus = True
+        , selectionFollowsFocus = False
+        , handleHomeAndEnd = True
+        }
+    , view =
+        { container = [ Attributes.class "control" ]
         , textfield =
             \{ selection, open } -> [ Attributes.class "textfield" ]
         , ul = [ Attributes.class "list" ]
@@ -482,6 +483,7 @@ filterableConfig =
                 , children = liChildren maybeQuery name
                 }
         }
+    }
 
 
 liChildren : Maybe String -> String -> List (Html Never)
