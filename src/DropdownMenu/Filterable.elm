@@ -2,16 +2,36 @@ module DropdownMenu.Filterable
     exposing
         ( Behaviour
         , Config
+        , HtmlAttributes
+        , HtmlDetails
+        , Ids
         , Msg
         , State
         , View
         , closed
         , update
+        , updateOptional
+        , updateRequired
         , view
         , viewLazy
         )
 
-{-| -}
+{-|
+
+@docs State, closed, view, Ids, updateRequired, updateOptional, Msg
+
+@docs viewLazy
+
+@docs update
+
+
+# Configuration
+
+@docs Config, Behaviour, View
+
+@docs HtmlAttributes, HtmlDetails
+
+-}
 
 {-
 
@@ -61,7 +81,8 @@ import Json.Decode.Pipeline as Decode
 import Task
 
 
-{-| -}
+{-| TODO
+-}
 type State
     = Closed
     | OpenEmpty String
@@ -82,7 +103,8 @@ type alias OpenData =
     }
 
 
-{-| -}
+{-| TODO
+-}
 closed : State
 closed =
     Closed
@@ -92,7 +114,8 @@ closed =
 ---- CONFIG
 
 
-{-| -}
+{-| TODO
+-}
 type alias Config a =
     { uniqueId : a -> String
     , printEntry : a -> String
@@ -102,7 +125,8 @@ type alias Config a =
     }
 
 
-{-| -}
+{-| TODO
+-}
 type alias Behaviour =
     { jumpAtEnds : Bool
     , closeAfterMouseSelection : Bool
@@ -112,7 +136,8 @@ type alias Behaviour =
     }
 
 
-{-| -}
+{-| TODO
+-}
 type alias View a =
     { container : HtmlAttributes
     , textfield :
@@ -132,12 +157,14 @@ type alias View a =
     }
 
 
-{-| -}
+{-| TODO
+-}
 type alias HtmlAttributes =
     List (Html.Attribute Never)
 
 
-{-| -}
+{-| TODO
+-}
 type alias HtmlDetails =
     { attributes : List (Html.Attribute Never)
     , children : List (Html Never)
@@ -148,17 +175,18 @@ type alias HtmlDetails =
 ---- VIEW
 
 
-{-| -}
+{-| TODO
+-}
 type alias Ids =
     { id : String
     , labelledBy : String
-    , placeholder : String
     }
 
 
-{-| -}
-view : Config a -> Ids -> State -> List a -> Maybe a -> Html (Msg a)
-view config ids state allEntries selection =
+{-| TODO
+-}
+view : Config a -> Ids -> String -> State -> List a -> Maybe a -> Html (Msg a)
+view config ids placeholder state allEntries selection =
     let
         textfieldHtmlAttributes =
             config.view.textfield
@@ -180,7 +208,7 @@ view config ids state allEntries selection =
             in
             viewClosed data
                 config.printEntry
-                ids.placeholder
+                placeholder
                 config.view.container
                 textfieldHtmlAttributes
                 ids.labelledBy
@@ -202,7 +230,7 @@ view config ids state allEntries selection =
                 (appendAttributes NoOp config.view.container [])
                 [ viewTextfield data
                     config.printEntry
-                    ids.placeholder
+                    placeholder
                     query
                     Nothing
                     textfieldHtmlAttributes
@@ -229,7 +257,7 @@ view config ids state allEntries selection =
                 (appendAttributes NoOp config.view.container [])
                 [ viewTextfield data
                     config.printEntry
-                    ids.placeholder
+                    placeholder
                     query
                     (Just keyboardFocus)
                     textfieldHtmlAttributes
@@ -253,9 +281,10 @@ view config ids state allEntries selection =
                 ]
 
 
-{-| -}
-viewLazy : (a -> Float) -> Config a -> Ids -> State -> List a -> Maybe a -> Html (Msg a)
-viewLazy entryHeight config ids state allEntries selection =
+{-| TODO
+-}
+viewLazy : (a -> Float) -> Config a -> Ids -> String -> State -> List a -> Maybe a -> Html (Msg a)
+viewLazy entryHeight config ids placeholder state allEntries selection =
     let
         textfieldHtmlAttributes =
             config.view.textfield
@@ -277,7 +306,7 @@ viewLazy entryHeight config ids state allEntries selection =
             in
             viewClosed data
                 config.printEntry
-                ids.placeholder
+                placeholder
                 config.view.container
                 textfieldHtmlAttributes
                 ids.labelledBy
@@ -299,7 +328,7 @@ viewLazy entryHeight config ids state allEntries selection =
                 (appendAttributes NoOp config.view.container [])
                 [ viewTextfield data
                     config.printEntry
-                    ids.placeholder
+                    placeholder
                     query
                     Nothing
                     textfieldHtmlAttributes
@@ -338,7 +367,7 @@ viewLazy entryHeight config ids state allEntries selection =
                 (appendAttributes NoOp config.view.container [])
                 [ viewTextfield data
                     config.printEntry
-                    ids.placeholder
+                    placeholder
                     query
                     (Just keyboardFocus)
                     textfieldHtmlAttributes
@@ -581,7 +610,8 @@ printTextfieldId id =
 ---- UPDATE
 
 
-{-| -}
+{-| TODO
+-}
 type Msg a
     = NoOp
       -- TEXTFIELD
@@ -615,7 +645,8 @@ type alias Data a =
     }
 
 
-{-| -}
+{-| TODO
+-}
 update : (a -> outMsg) -> State -> Msg a -> ( State, Cmd (Msg a), Maybe outMsg )
 update entrySelected state msg =
     case state of
@@ -1210,6 +1241,50 @@ updateKeyboardFocus { separateFocus } newFocus stuff =
             else
                 Just newFocus
     }
+
+
+
+-- SIMPLER UPDATES
+
+
+type OutMsg a
+    = EntrySelected a
+
+
+{-| TODO
+-}
+updateOptional : Msg a -> Maybe a -> State -> ( State, Maybe a, Cmd (Msg a) )
+updateOptional msg selection state =
+    let
+        ( newState, cmd, maybeOutMsg ) =
+            update EntrySelected state msg
+    in
+    case maybeOutMsg of
+        Nothing ->
+            ( newState, selection, cmd )
+
+        Just (EntrySelected a) ->
+            ( newState, Just a, cmd )
+
+
+{-| TODO
+-}
+updateRequired : Msg a -> a -> State -> ( State, a, Cmd (Msg a) )
+updateRequired msg selection state =
+    let
+        ( newState, cmd, maybeOutMsg ) =
+            update EntrySelected state msg
+    in
+    case maybeOutMsg of
+        Nothing ->
+            ( newState, selection, cmd )
+
+        Just (EntrySelected a) ->
+            ( newState, a, cmd )
+
+
+
+-- CMDS
 
 
 focusTextfield : String -> Cmd (Msg a)

@@ -150,7 +150,7 @@ type OutMsg
 
 
 update msg model =
-    case Debug.log "msg" msg of
+    case msg of
         LicenseMenuMsg dropdownMenuMsg ->
             let
                 ( newDropdownMenu, cmd, maybeOutMsg ) =
@@ -391,8 +391,8 @@ viewLicenses selectedLicense licenseMenu =
             |> DropdownMenu.Filterable.view filterableConfig
                 { id = "license"
                 , labelledBy = "license__label"
-                , placeholder = "Select a license..."
                 }
+                "Select a license..."
                 licenseMenu
                 licenses
             |> Html.map LicenseMenuMsg

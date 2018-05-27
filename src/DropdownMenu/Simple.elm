@@ -21,7 +21,27 @@ module DropdownMenu.Simple
         , viewLazy
         )
 
-{-| -}
+{-|
+
+@docs State, closed, view, Ids, updateRequired, updateOptional, Msg, subscriptions
+
+@docs viewLazy
+
+@docs update
+
+
+# Configuration
+
+@docs Config, Behaviour, View
+
+@docs HtmlAttributes, HtmlDetails
+
+
+## Type ahead
+
+@docs TypeAhead, noTypeAhead, simpleTypeAhead, typeAhead
+
+-}
 
 {-
 
@@ -73,7 +93,8 @@ import Task
 import Time
 
 
-{-| -}
+{-| TODO
+-}
 type State
     = Closed
     | Open OpenData
@@ -98,7 +119,8 @@ type Query
     | Query Int Time.Posix String
 
 
-{-| -}
+{-| TODO
+-}
 closed : State
 closed =
     Closed
@@ -108,7 +130,8 @@ closed =
 ---- CONFIG
 
 
-{-| -}
+{-| TODO
+-}
 type alias Config a =
     { uniqueId : a -> String
     , behaviour : Behaviour a
@@ -116,7 +139,8 @@ type alias Config a =
     }
 
 
-{-| -}
+{-| TODO
+-}
 type alias Behaviour a =
     { jumpAtEnds : Bool
     , closeAfterMouseSelection : Bool
@@ -127,19 +151,22 @@ type alias Behaviour a =
     }
 
 
-{-| -}
+{-| TODO
+-}
 type TypeAhead a
     = NoTypeAhead
     | TypeAhead Int (String -> a -> Bool)
 
 
-{-| -}
+{-| TODO
+-}
 noTypeAhead : TypeAhead a
 noTypeAhead =
     NoTypeAhead
 
 
-{-| -}
+{-| TODO
+-}
 simpleTypeAhead : Int -> (a -> String) -> TypeAhead a
 simpleTypeAhead timeout entryToString =
     TypeAhead timeout <|
@@ -148,13 +175,15 @@ simpleTypeAhead timeout entryToString =
                 |> String.startsWith (String.toLower query)
 
 
-{-| -}
+{-| TODO
+-}
 typeAhead : Int -> (String -> a -> Bool) -> TypeAhead a
 typeAhead =
     TypeAhead
 
 
-{-| -}
+{-| TODO
+-}
 type alias View a =
     { container : HtmlAttributes
     , button :
@@ -174,12 +203,14 @@ type alias View a =
     }
 
 
-{-| -}
+{-| TODO
+-}
 type alias HtmlAttributes =
     List (Html.Attribute Never)
 
 
-{-| -}
+{-| TODO
+-}
 type alias HtmlDetails =
     { attributes : List (Html.Attribute Never)
     , children : List (Html Never)
@@ -190,14 +221,16 @@ type alias HtmlDetails =
 ---- VIEW
 
 
-{-| -}
+{-| TODO
+-}
 type alias Ids =
     { id : String
     , labelledBy : String
     }
 
 
-{-| -}
+{-| TODO
+-}
 view : Config a -> Ids -> State -> List a -> Maybe a -> Html (Msg a)
 view config ids state allEntries selection =
     let
@@ -247,7 +280,8 @@ view config ids state allEntries selection =
                 ]
 
 
-{-| -}
+{-| TODO
+-}
 viewLazy : (a -> Float) -> Config a -> Ids -> State -> List a -> Maybe a -> Html (Msg a)
 viewLazy entryHeight config ids state allEntries selection =
     let
@@ -499,7 +533,8 @@ printButtonId id =
 ---- UPDATE
 
 
-{-| -}
+{-| TODO
+-}
 type Msg a
     = NoOp
       -- BUTTON
@@ -535,7 +570,8 @@ type alias Data a =
     }
 
 
-{-| -}
+{-| TODO
+-}
 update : (a -> outMsg) -> State -> Msg a -> ( State, Cmd (Msg a), Maybe outMsg )
 update entrySelected state msg =
     case state of
@@ -1092,7 +1128,8 @@ updateKeyboardFocus { separateFocus } newFocus stuff =
     }
 
 
-{-| -}
+{-| TODO
+-}
 subscriptions : State -> Sub (Msg a)
 subscriptions state =
     case state of
@@ -1116,7 +1153,8 @@ type OutMsg a
     = EntrySelected a
 
 
-{-| -}
+{-| TODO
+-}
 updateOptional : Msg a -> Maybe a -> State -> ( State, Maybe a, Cmd (Msg a) )
 updateOptional msg selection state =
     let
@@ -1131,7 +1169,8 @@ updateOptional msg selection state =
             ( newState, Just a, cmd )
 
 
-{-| -}
+{-| TODO
+-}
 updateRequired : Msg a -> a -> State -> ( State, a, Cmd (Msg a) )
 updateRequired msg selection state =
     let
