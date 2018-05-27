@@ -42,68 +42,62 @@ type alias HtmlDetails =
 viewEntries :
     { entryMouseEntered : String -> msg
     , entryMouseLeft : msg
-    , entryClicked : String -> Bool -> String -> a -> msg
+    , entryClicked : String -> (a -> String) -> Bool -> a -> msg
     , noOp : msg
-    }
-    ->
-        { cfg
-            | closeAfterMouseSelection : Bool
-            , li :
-                { selected : Bool
-                , keyboardFocused : Bool
-                , mouseFocused : Bool
-                , maybeQuery : Maybe String
-                }
-                -> a
-                -> HtmlDetails
-            , entryId : a -> String
+    , closeAfterMouseSelection : Bool
+    , li :
+        { selected : Bool
+        , keyboardFocused : Bool
+        , mouseFocused : Bool
+        , maybeQuery : Maybe String
         }
+        -> a
+        -> HtmlDetails
+    , uniqueId : a -> String
+    }
     -> String
     -> Maybe String
-    -> Maybe String
+    -> String
     -> Maybe String
     -> Maybe a
     -> RenderedEntries a
     -> List (Html msg)
-viewEntries msgs cfg id maybeQuery keyboardFocus mouseFocus selection renderedEntries =
+viewEntries cfg id maybeQuery keyboardFocus maybeMouseFocus selection renderedEntries =
     List.concat
         [ spacer renderedEntries.spaceAboveFirst
         , renderedEntries.entriesAbove
             |> List.map
                 (\a ->
-                    viewEntry msgs
-                        cfg
+                    viewEntry cfg
                         id
                         maybeQuery
                         (selection == Just a)
-                        (keyboardFocus == Just (cfg.entryId a))
-                        (mouseFocus == Just (cfg.entryId a))
+                        (keyboardFocus == cfg.uniqueId a)
+                        (maybeMouseFocus == Just (cfg.uniqueId a))
                         a
                 )
         , spacer renderedEntries.spaceAboveSecond
         , renderedEntries.visibleEntries
             |> List.map
                 (\a ->
-                    viewEntry msgs
-                        cfg
+                    viewEntry cfg
                         id
                         maybeQuery
                         (selection == Just a)
-                        (keyboardFocus == Just (cfg.entryId a))
-                        (mouseFocus == Just (cfg.entryId a))
+                        (keyboardFocus == cfg.uniqueId a)
+                        (maybeMouseFocus == Just (cfg.uniqueId a))
                         a
                 )
         , spacer renderedEntries.spaceBelowFirst
         , renderedEntries.entriesBelow
             |> List.map
                 (\a ->
-                    viewEntry msgs
-                        cfg
+                    viewEntry cfg
                         id
                         maybeQuery
                         (selection == Just a)
-                        (keyboardFocus == Just (cfg.entryId a))
-                        (mouseFocus == Just (cfg.entryId a))
+                        (keyboardFocus == cfg.uniqueId a)
+                        (maybeMouseFocus == Just (cfg.uniqueId a))
                         a
                 )
         , spacer renderedEntries.spaceBelowSecond
@@ -125,22 +119,19 @@ spacer height =
 viewEntry :
     { entryMouseEntered : String -> msg
     , entryMouseLeft : msg
-    , entryClicked : String -> Bool -> String -> a -> msg
+    , entryClicked : String -> (a -> String) -> Bool -> a -> msg
     , noOp : msg
-    }
-    ->
-        { cfg
-            | closeAfterMouseSelection : Bool
-            , li :
-                { selected : Bool
-                , keyboardFocused : Bool
-                , mouseFocused : Bool
-                , maybeQuery : Maybe String
-                }
-                -> a
-                -> HtmlDetails
-            , entryId : a -> String
+    , closeAfterMouseSelection : Bool
+    , li :
+        { selected : Bool
+        , keyboardFocused : Bool
+        , mouseFocused : Bool
+        , maybeQuery : Maybe String
         }
+        -> a
+        -> HtmlDetails
+    , uniqueId : a -> String
+    }
     -> String
     -> Maybe String
     -> Bool
@@ -148,7 +139,7 @@ viewEntry :
     -> Bool
     -> a
     -> Html msg
-viewEntry msgs cfg id maybeQuery selected keyboardFocused mouseFocused a =
+viewEntry cfg id maybeQuery selected keyboardFocused mouseFocused a =
     let
         { attributes, children } =
             cfg.li
@@ -160,16 +151,16 @@ viewEntry msgs cfg id maybeQuery selected keyboardFocused mouseFocused a =
                 a
     in
     Html.li
-        ([ Events.onMouseEnter (msgs.entryMouseEntered (cfg.entryId a))
-         , Events.onMouseLeave msgs.entryMouseLeft
-         , Events.onClick (msgs.entryClicked id cfg.closeAfterMouseSelection (cfg.entryId a) a)
-         , Attributes.id (printEntryId id (cfg.entryId a))
+        ([ Events.onMouseEnter (cfg.entryMouseEntered (cfg.uniqueId a))
+         , Events.onMouseLeave cfg.entryMouseLeft
+         , Events.onClick (cfg.entryClicked id cfg.uniqueId cfg.closeAfterMouseSelection a)
+         , Attributes.id (printEntryId id (cfg.uniqueId a))
          , Attributes.attribute "role" "option"
          ]
-            |> appendAttributes msgs.noOp attributes
+            |> appendAttributes cfg.noOp attributes
         )
         (children
-            |> List.map (Html.map (\_ -> msgs.noOp))
+            |> List.map (Html.map (\_ -> cfg.noOp))
         )
 
 
@@ -188,25 +179,20 @@ setAriaExpanded isOpen attrs =
 setAriaActivedescendant :
     String
     -> (a -> String)
-    -> Maybe String
+    -> String
     -> List a
     -> List (Html.Attribute msg)
     -> List (Html.Attribute msg)
-setAriaActivedescendant id entryId keyboardFocus entries attrs =
-    case keyboardFocus of
-        Nothing ->
-            attrs
-
-        Just focus ->
-            entries
-                |> find entryId focus
-                |> Maybe.map
-                    (\( _, focusedEntry ) ->
-                        Attributes.attribute "aria-activedescendant"
-                            (printEntryId id (entryId focusedEntry))
-                            :: attrs
-                    )
-                |> Maybe.withDefault attrs
+setAriaActivedescendant id uniqueId keyboardFocus entries attrs =
+    entries
+        |> find uniqueId keyboardFocus
+        |> Maybe.map
+            (\( _, focusedEntry ) ->
+                Attributes.attribute "aria-activedescendant"
+                    (printEntryId id (uniqueId focusedEntry))
+                    :: attrs
+            )
+        |> Maybe.withDefault attrs
 
 
 

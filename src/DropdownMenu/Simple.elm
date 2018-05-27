@@ -351,24 +351,21 @@ viewList data config ids maybeQuery keyboardFocus maybeMouseFocus selection rend
                 (Decode.at [ "target", "clientHeight" ] Decode.float)
          ]
             |> handleKeypress data
-            |> setAriaActivedescendant ids.id config.uniqueId (Just keyboardFocus) data.allEntries
+            |> setAriaActivedescendant ids.id config.uniqueId keyboardFocus data.allEntries
             |> appendAttributes NoOp config.view.ul
         )
         (viewEntries
             { entryMouseEntered = EntryMouseEntered config.behaviour
             , entryMouseLeft = EntryMouseLeft config.behaviour
-            , entryClicked =
-                \_ closeAfterMouseSelection _ a ->
-                    EntryClicked config.behaviour ids.id config.uniqueId closeAfterMouseSelection a
+            , entryClicked = EntryClicked config.behaviour
             , noOp = NoOp
-            }
-            { closeAfterMouseSelection = config.behaviour.closeAfterMouseSelection
+            , closeAfterMouseSelection = config.behaviour.closeAfterMouseSelection
             , li = config.view.li
-            , entryId = config.uniqueId
+            , uniqueId = config.uniqueId
             }
             ids.id
             maybeQuery
-            (Just keyboardFocus)
+            keyboardFocus
             maybeMouseFocus
             selection
             renderedEntries
