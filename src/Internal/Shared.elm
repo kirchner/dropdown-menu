@@ -3,27 +3,21 @@ module Internal.Shared
         ( Next(..)
         , Previous(..)
         , RenderedEntries
-        , ScrollAction(..)
         , ScrollData
         , adjustScrollTop
         , allowDefault
         , appendAttributes
-        , centerScrollTop
         , computeRenderedEntries
-        , domIndex
         , find
         , findNext
         , findPrevious
         , findWith
         , indexOf
-        , last
         , preventDefault
         , printEntryId
         , printListId
-        , resetScrollTop
         , setAriaActivedescendant
         , setAriaExpanded
-        , setDisplay
         , viewEntries
         )
 
@@ -181,14 +175,6 @@ viewEntry msgs cfg id maybeQuery selected keyboardFocused mouseFocused a =
 
 
 ---- VIEW HELPER
-
-
-setDisplay : Bool -> List (Html.Attribute msg) -> List (Html.Attribute msg)
-setDisplay isOpen attrs =
-    if isOpen then
-        attrs
-    else
-        Attributes.style "display" "none" :: attrs
 
 
 setAriaExpanded : Bool -> List (Html.Attribute msg) -> List (Html.Attribute msg)
@@ -356,27 +342,6 @@ computeRenderedEntries entryHeight ulScrollTop ulClientHeight maybeFocusIndex en
                     |> Tuple.second
 
 
-domIndex : Int -> Int -> Int -> Int -> Int -> Int
-domIndex newIndex droppedAboveFirst droppedAboveSecond droppedBelowFirst displayed =
-    if newIndex - droppedAboveFirst < 0 then
-        -- newEntry is above visible entries
-        newIndex - droppedAboveFirst + 1
-    else if
-        newIndex
-            - droppedAboveFirst
-            - droppedAboveSecond
-            < displayed
-    then
-        -- newEntry is visible
-        newIndex - droppedAboveFirst - droppedAboveSecond + 2
-    else
-        -- newEntry is below visible entries
-        newIndex
-            - droppedAboveFirst
-            - droppedAboveSecond
-            - droppedBelowFirst
-
-
 
 ---- FIND CURRENT/NEXT/PREVIOUS ENTRIES
 
@@ -463,7 +428,9 @@ findPrevious entryId currentId entries =
 
         first :: rest ->
             if entryId first == currentId then
-                last entries
+                entries
+                    |> List.reverse
+                    |> List.head
                     |> Maybe.map Last
             else
                 findPreviousHelp first 0 entryId currentId rest
@@ -526,11 +493,6 @@ findNextHelp first index entryId currentId entries =
                         findNextHelp first (index + 1) entryId currentId rest
 
 
-last : List a -> Maybe a
-last =
-    List.reverse >> List.head
-
-
 
 -- MISC
 
@@ -576,35 +538,12 @@ printEntryId id entryId =
 -- CMDS
 
 
-type ScrollAction
-    = ScrollToTop
-    | ScrollToBottom
-    | UseScrollData
-
-
 type alias ScrollData =
     { ulScrollTop : Float
     , ulClientHeight : Float
     , liOffsetTop : Float
     , liOffsetHeight : Float
     }
-
-
-resetScrollTop : msg -> String -> Maybe String -> Maybe ScrollData -> Cmd msg
-resetScrollTop noOp id keyboardFocus scrollDataCache =
-    case scrollDataCache of
-        Nothing ->
-            Browser.setScrollTop (printListId id) 0
-                |> Task.attempt (\_ -> noOp)
-
-        Just scrollData ->
-            case keyboardFocus of
-                Nothing ->
-                    Browser.setScrollTop (printListId id) 0
-                        |> Task.attempt (\_ -> noOp)
-
-                Just _ ->
-                    adjustScrollTop noOp id scrollData
 
 
 adjustScrollTop : msg -> String -> ScrollData -> Cmd msg
