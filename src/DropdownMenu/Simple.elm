@@ -50,27 +50,21 @@ import Internal.Shared
         ( Next(..)
         , Previous(..)
         , RenderedEntries
-        , ScrollAction(..)
         , ScrollData
         , adjustScrollTop
         , allowDefault
         , appendAttributes
-        , centerScrollTop
         , computeRenderedEntries
-        , domIndex
         , find
         , findNext
         , findPrevious
         , findWith
         , indexOf
-        , last
         , preventDefault
         , printEntryId
         , printListId
-        , resetScrollTop
         , setAriaActivedescendant
         , setAriaExpanded
-        , setDisplay
         , viewEntries
         )
 import Json.Decode as Decode exposing (Decoder)
